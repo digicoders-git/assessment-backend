@@ -85,6 +85,29 @@ export const createAssessment = async (req, res) => {
 };
 
 
+export const getAssesmentByStatus = async (req, res) => {
+  try {
+    const { status } = req.params;
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: "Status is required"
+      });
+    }
+    const assessments = await assessmentModel.find({ status: status });
+    return res.status(200).json({
+      success: true,
+      assessments
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}
+
+
 export const updateAssessment = async (req, res) => {
   try {
     const { id } = req.params;

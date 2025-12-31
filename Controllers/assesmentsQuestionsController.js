@@ -6,7 +6,7 @@ import questionModel from "../Models/questionModel.js";
 export const addQuestionsToAssessment = async (req, res) => {
     try {
         const { id } = req.params; // assessmentId
-        const {questionIds } = req.body;
+        const { questionIds } = req.body;
 
         if (!Array.isArray(questionIds) || !questionIds.length) {
             return res.status(400).json({
@@ -58,11 +58,34 @@ export const addQuestionsToAssessment = async (req, res) => {
     }
 };
 
+export const getAssesmentById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!id) { return res.status(400).json({ success: false, message: "Assessment Id required" }) }
+
+        const assesment = await assesmentQuestionIdModel.findOne({ _id: id }).populate({
+            path: "questionIds",
+            populate: {
+                path: "topic"
+            }
+        });
+
+        if (!assesment) {
+            return res.status(404).json({ success: false, message: "Assessment not found" });
+        }
+
+        res.status(200).json({ success: true, message: "Assessment found", data: assesment });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 export const deleteQuestionFromAssessment = async (req, res) => {
     try {
-        const { assesmentQuestionId,questionId } = req.params; 
+        const { assesmentQuestionId, questionId } = req.params;
 
-        const existAssesmeQuestiontnId = await assesmentQuestionIdModel.findById({_id:assesmentQuestionId});
+        const existAssesmeQuestiontnId = await assesmentQuestionIdModel.findById({ _id: assesmentQuestionId });
         if (!existAssesmeQuestiontnId) {
             return res.status(404).json({ success: false, message: "AssesmentQuestionId not found" });
         }
@@ -72,7 +95,7 @@ export const deleteQuestionFromAssessment = async (req, res) => {
         if (!existQuestionId) {
             return res.status(404).json({ success: false, message: "Question not found" });
         }
-        await assesmentQuestionIdModel.findByIdAndUpdate({_id:assesmentQuestionId},{$pull:{questionIds:questionId}});   
+        await assesmentQuestionIdModel.findByIdAndUpdate({ _id: assesmentQuestionId }, { $pull: { questionIds: questionId } });
 
         res.status(200).json({ success: true, message: "Question deleted" });
 

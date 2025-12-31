@@ -1,0 +1,66 @@
+import mongoose from "mongoose";
+
+const textFieldSchema = new mongoose.Schema(
+  {
+    fontFamily: {
+      type: String,
+      required: true
+    },
+    fontStyle: {
+      type: String,
+      required: true
+    },
+    fontSize: {
+      type: String,
+      required: true
+    },
+    textColor: {
+      type: String,
+      required: true
+    },
+    verticalPosition: {
+      type: String,
+      required: true
+    },
+    horizontalPosition: {
+      type: String,
+      required: true
+    }
+  },
+  { _id: false }
+);
+
+const certificateSchema = new mongoose.Schema(
+  {
+    certificateName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    certificateImage: {
+      type: String, // cloudinary image URL
+      required: true
+    },
+
+    studentName: {
+      type: textFieldSchema,
+      required: true
+    },
+    assessmentName: {
+      type: textFieldSchema,
+    },
+    assessmentCode: {
+      type: textFieldSchema,
+    },
+    collegeName: {
+      type: textFieldSchema,
+    },
+    date: {
+      type: textFieldSchema,
+    }
+  },
+  { timestamps: true }
+);
+
+const certificateModel = mongoose.model("Certificate", certificateSchema);
+export default certificateModel;

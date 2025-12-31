@@ -115,7 +115,6 @@ export const deleteQuestion = async (req, res) => {
 export const importQuestionsFromExcel = async (req, res) => {
   try {
     const { id } = req.params;
-    console.log(req.file)
     //  Basic validation
     if (!req.file) {
       return res.status(400).json({success:false, message: "Excel file is required" });
