@@ -38,7 +38,8 @@ const assessmentSchema = new mongoose.Schema({
     default: false
   },
   certificateName: {
-    type: String
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Certificate"
   },
   remark: {
     type: String

@@ -55,6 +55,10 @@ const certificateSchema = new mongoose.Schema(
     collegeName: {
       type: textFieldSchema,
     },
+    status: {
+      type : Boolean,
+      default: true
+    },
     date: {
       type: textFieldSchema,
     }

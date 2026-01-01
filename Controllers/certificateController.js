@@ -1,4 +1,4 @@
-
+import qs from "qs";
 import certificateModel from "../Models/certificateModel.js";
 import cloudinary from "../Config/cloudinary.js";
 
@@ -129,44 +129,156 @@ export const getSingleCertificate = async (req, res) => {
 };
 
 // UPDATE certificate by ID
+
 export const updateCertificate = async (req, res) => {
   try {
     const { id } = req.params;
-    if(!id) return res.status(400).json({ success: false, message: "Certificate ID is required" });
-    const updatedData = { ...req.body };
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Certificate ID is required"
+      });
+    }
 
-    // If new file uploaded
+    // Parse nested form-data fields correctly
+    const updatedData = qs.parse(req.body);
+
+    // Fetch existing certificate
+    const existingCertificate = await certificateModel.findById(id);
+    if (!existingCertificate) {
+      return res.status(404).json({
+        success: false,
+        message: "Certificate not found"
+      });
+    }
+
+    // If new image uploaded
     if (req.file) {
+      // Delete old image from Cloudinary (cost-safe)
+      if (existingCertificate.certificateImage) {
+        const publicId = existingCertificate.certificateImage
+          .split("/")
+          .pop()
+          .split(".")[0];
+
+        await cloudinary.uploader.destroy(`certificates/${publicId}`);
+      }
+
+      // Upload new image
       const uploadResult = await cloudinary.uploader.upload(
         `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
         { folder: "certificates" }
       );
+
       updatedData.certificateImage = uploadResult.secure_url;
     }
 
-    const certificate = await certificateModel.findByIdAndUpdate(
+    // Update certificate
+    const updatedCertificate = await certificateModel.findByIdAndUpdate(
       id,
       updatedData,
-      { new: true }
+      { new: true, runValidators: true }
     );
 
-    if (!certificate) return res.status(404).json({ success: false, message: "Certificate not found" });
-    res.status(200).json(certificate);
+    return res.status(200).json({
+      success: true,
+      message: "Certificate updated successfully",
+      certificate: updatedCertificate
+    });
+
   } catch (error) {
-    res.status(500).json({ success: false, message: "Internal server error",error:error.message });
+    console.error("UPDATE CERTIFICATE ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
   }
 };
 
+
 // DELETE certificate by ID
+
 export const deleteCertificate = async (req, res) => {
   try {
-    const certificate = await certificateModel.findByIdAndDelete(req.params.id);
-    if (!certificate) return res.status(404).json({ success: false, message: "Certificate not found" });
-    res.status(200).json({ success: true,message:"Deleted" });
+    const { id } = req.params;
+
+    if(!id) return res.status(400).json({success:false, message:"Certificate ID is required"} )
+
+    const certificate = await certificateModel.findById(id);
+    if (!certificate) {
+      return res.status(404).json({ success: false, message: "Certificate not found" });
+    }
+
+    //  Extract public_id from Cloudinary URL
+    if (certificate.certificateImage) {
+      const imageUrl = certificate.certificateImage;
+
+      const publicId = imageUrl
+        .split("/")
+        .slice(-2)
+        .join("/")
+        .replace(/\.[^/.]+$/, ""); // remove extension
+
+      await cloudinary.uploader.destroy(publicId);
+    }
+
+    await certificateModel.findByIdAndDelete(id);
+
+    res.status(200).json({
+      success: true,
+      message: "Certificate deleted successfully"
+    });
+
   } catch (error) {
-    res.status(500).json({ success: false, message: "Internal server error",error:error.message });
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
   }
 };
+
+
+// Toggle certificate stauts
+
+export const toggleCertificateStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Certificate ID is required"
+      });
+    }
+
+    const certificate = await certificateModel.findById(id);
+    if (!certificate) {
+      return res.status(404).json({
+        success: false,
+        message: "Certificate not found"
+      });
+    }
+
+    certificate.status = !certificate.status;
+    await certificate.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Certificate ${certificate.status ? "Activated" : "DeActivated"}`,
+      status: certificate.status
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
+  }
+};
+
 
 
 
