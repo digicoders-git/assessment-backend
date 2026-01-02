@@ -4,7 +4,9 @@ const questionIdCollectionSchema = new mongoose.Schema({
     assesmentId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Assesment",
-        required: true
+        unique: true,
+        required: true,
+        index: true
     },
     questionIds: [
         {

@@ -17,6 +17,7 @@ import collegeRouter from "./Routes/collegeRoute.js";
 import academicYearRoute from "./Routes/academicYearRoute.js";
 import courseRouter from "./Routes/courseRoute.js";
 import certificateRouter from "./Routes/certificateRoute.js";
+import resultRouter from "./Routes/resultRoute.js";
 
 
 
@@ -40,6 +41,7 @@ app.use('/admin', collegeRouter);
 app.use('/admin', academicYearRoute);
 app.use('/admin', courseRouter);
 app.use('/admin', certificateRouter);
+app.use('/admin', resultRouter);
 
 const port = process.env.PORT || 5000;
 app.listen(port, () => {
