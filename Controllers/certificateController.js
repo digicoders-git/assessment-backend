@@ -5,103 +5,119 @@ import cloudinary from "../Config/cloudinary.js";
 
 /* ===== HELPER FUNCTIONS ===== */
 
-const buildTextConfig = (body, prefix) => {
-    return {
-        fontFamily: body[`${prefix}.fontFamily`],
-        fontStyle: body[`${prefix}.fontStyle`],
-        fontSize: body[`${prefix}.fontSize`],
-        textColor: body[`${prefix}.textColor`],
-        verticalPosition: body[`${prefix}.verticalPosition`],
-        horizontalPosition: body[`${prefix}.horizontalPosition`]
-    };
+
+export const buildTextConfig = (body, key) => {
+  let data = body[key];
+  if (!data) return null;
+
+  // multipart/form-data case (JSON string)
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  return {
+    fontFamily: data.fontFamily,
+    bold: data.bold === "true" || data.bold === true,
+    italic: data.italic === "true" || data.italic === true,
+    underline: data.underline === "true" || data.underline === true,
+    fontSize: data.fontSize,
+    textColor: data.textColor,
+    verticalPosition: data.verticalPosition,
+    horizontalPosition: data.horizontalPosition,
+  };
 };
 
-const isValidTextConfig = (obj) => {
-    return (
-        obj &&
-        obj.fontFamily &&
-        obj.fontStyle &&
-        obj.fontSize !== undefined &&
-        obj.textColor &&
-        obj.verticalPosition !== undefined &&
-        obj.horizontalPosition !== undefined
-    );
+/* Helper to validate text config (all fields present) */
+export const isValidTextConfig = (cfg) => {
+  if (!cfg) return false;
+  return (
+    typeof cfg.fontFamily === "string" &&
+    typeof cfg.bold === "boolean" &&
+    typeof cfg.italic === "boolean" &&
+    typeof cfg.underline === "boolean" &&
+    typeof cfg.fontSize === "string" &&
+    typeof cfg.textColor === "string" &&
+    typeof cfg.verticalPosition === "string" &&
+    typeof cfg.horizontalPosition === "string"
+  );
 };
 
 /* CREATE CERTIFICATE */
-
 export const createCertificate = async (req, res) => {
-    try {
-        const { certificateName } = req.body;
+  try {
+    const { certificateName } = req.body;
 
-        if (!certificateName) {
-            return res.status(400).json({
-                success: false,
-                message: "certificateName is required"
-            });
-        }
-
-        const studentName = buildTextConfig(req.body, "studentName");
-        const assessmentName = buildTextConfig(req.body, "assessmentName");
-        const assessmentCode = buildTextConfig(req.body, "assessmentCode");
-        const collegeName = buildTextConfig(req.body, "collegeName");
-        const date = buildTextConfig(req.body, "date");
-
-        if (!isValidTextConfig(studentName)) {
-            return res.status(400).json({ success: false, message: "studentName config invalid" });
-        }
-
-        if (!isValidTextConfig(assessmentName)) {
-            return res.status(400).json({ success: false, message: "assessmentName config invalid" });
-        }
-
-        if (!isValidTextConfig(assessmentCode)) {
-            return res.status(400).json({ success: false, message: "assessmentCode config invalid" });
-        }
-
-        if (!isValidTextConfig(collegeName)) {
-            return res.status(400).json({ success: false, message: "collegeName config invalid" });
-        }
-
-        if (!isValidTextConfig(date)) {
-            return res.status(400).json({ success: false, message: "date config invalid" });
-        }
-
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: "certificate image required"
-            });
-        }
-
-        const uploadResult = await cloudinary.uploader.upload(
-            `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
-            { folder: "certificates" }
-        );
-
-        const certificate = await certificateModel.create({
-            certificateName,
-            certificateImage: uploadResult.secure_url,
-            studentName,
-            assessmentName,
-            assessmentCode,
-            collegeName,
-            date
-        });
-
-        return res.status(201).json({
-            success: true,
-            message: "Certificate created successfully",
-            certificate
-        });
-
-    } catch (error) {
-        console.error("CREATE CERTIFICATE ERROR:", error);
-        return res.status(500).json({
-            success: false,
-            message: "internal server error"
-        });
+    if (!certificateName) {
+      return res.status(400).json({
+        success: false,
+        message: "certificateName is required",
+      });
     }
+
+    // Check unique
+    const exists = await certificateModel.findOne({ certificateName });
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        message: "certificateName must be unique",
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "certificate image required",
+      });
+    }
+
+    // REQUIRED: studentName
+    const studentName = buildTextConfig(req.body, "studentName");
+    if (!isValidTextConfig(studentName)) {
+      return res.status(400).json({
+        success: false,
+        message: "studentName config invalid",
+      });
+    }
+
+    // OPTIONAL FIELDS: include only if present & valid
+    const optionalFields = ["assessmentName", "assessmentCode", "collegeName", "date"];
+    const optionalData = {};
+    optionalFields.forEach((key) => {
+      const cfg = buildTextConfig(req.body, key);
+      if (cfg && isValidTextConfig(cfg)) {
+        optionalData[key] = cfg; // save full config object if valid
+      }
+    });
+
+    // Upload certificate image to Cloudinary
+    const uploadResult = await cloudinary.uploader.upload(
+      `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
+      { folder: "certificates" }
+    );
+
+    const certificate = await certificateModel.create({
+      certificateName,
+      certificateImage: uploadResult.secure_url,
+      studentName,
+      ...optionalData, // spread optional fields if valid
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Certificate created successfully",
+      certificate,
+    });
+  } catch (error) {
+    console.error("CREATE CERTIFICATE ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "internal server error",
+    });
+  }
 };
 
 
@@ -238,7 +254,6 @@ export const deleteCertificate = async (req, res) => {
     });
   }
 };
-
 
 // Toggle certificate stauts
 

@@ -80,7 +80,6 @@ export const addQuestionsToAssessment = async (req, res) => {
   }
 };
 
-
 export const getAssesmentById = async (req, res) => {
     try {
         const { id } = req.params;

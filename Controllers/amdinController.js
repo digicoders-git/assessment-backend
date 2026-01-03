@@ -36,7 +36,7 @@ export const adminLogout = async (req, res) => {
   res.status(200).json({ success:true,message:"Logout successful" });
 };
 
-// update admin
+// get admin
 export const getAdmin = async (req, res) => {
   try {
     const admin = await amdidnModel.findById(req.adminId);

@@ -49,8 +49,6 @@ export const getAllColleges = async (req, res) => {
   }
 };
 
-
-
 /* Update college */
 export const updateCollege = async (req, res) => {
   try {
@@ -100,9 +98,7 @@ export const updateCollege = async (req, res) => {
   }
 };
 
-
 // Delete college 
-
 export const deleteCollege = async (req, res) => {
   try {
     const { id } = req.params;

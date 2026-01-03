@@ -2,33 +2,20 @@ import mongoose from "mongoose";
 
 const textFieldSchema = new mongoose.Schema(
   {
-    fontFamily: {
-      type: String,
-      required: true
-    },
-    fontStyle: {
-      type: String,
-      required: true
-    },
-    fontSize: {
-      type: String,
-      required: true
-    },
-    textColor: {
-      type: String,
-      required: true
-    },
-    verticalPosition: {
-      type: String,
-      required: true
-    },
-    horizontalPosition: {
-      type: String,
-      required: true
-    }
+    fontFamily: { type: String, required: true },
+
+    bold: { type: Boolean, default: false },
+    italic: { type: Boolean, default: false },
+    underline: { type: Boolean, default: false },
+
+    fontSize: { type: String, required: true },
+    textColor: { type: String, required: true },
+    verticalPosition: { type: String, required: true },
+    horizontalPosition: { type: String, required: true },
   },
   { _id: false }
 );
+
 
 const certificateSchema = new mongoose.Schema(
   {

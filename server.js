@@ -1,10 +1,11 @@
 import dotenv from "dotenv";
-dotenv.config();   // 👈 MUST be first, before any other imports
+dotenv.config(); 
 
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import dbConnect from "./Config/db.js";
+
 
 // Routes
 import studentRoute from "./Routes/student-router.js";
@@ -23,8 +24,9 @@ import resultRouter from "./Routes/resultRoute.js";
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(cors());
+app.use(cors());       // will be update at finel lounch
 app.use(express.urlencoded({ extended: true }));
 
 // Database connection

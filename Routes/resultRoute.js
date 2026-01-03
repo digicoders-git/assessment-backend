@@ -6,5 +6,6 @@ const resultRouter = express.Router();
 resultRouter.post("/result", createResult);
 resultRouter.get("/result/:id", getResultsByAssessmentId);
 resultRouter.get("/result-single/:id", getResultsByStudent);
+// resultRouter.post("/result-certificate/:studentId/:assesmentId", generateCertificate);
 
 export default resultRouter;
