@@ -1,5 +1,5 @@
 import topicModel from "../Models/topic.js";
-import questionModel from "../models/questionModel.js";
+import questionModel from "../Models/questionModel.js";
 
 
 

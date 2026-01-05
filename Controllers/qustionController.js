@@ -1,6 +1,6 @@
 
 import XLSX from "xlsx";
-import questionModel from "../models/questionModel.js";
+import questionModel from "../Models/questionModel.js";
 import topicModel from "../Models/topic.js";
 
 export const createQuestions = async (req, res) => {
