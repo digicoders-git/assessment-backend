@@ -4,9 +4,9 @@ import amdidnModel from "../Models/adminModel.js";
 import cloudinary from "../Config/cloudinary.js";
 
 export const adminLogin = async (req, res) => {
-  const { email, password } = req.body;
+  const { userName, password } = req.body;
 
-  const admin = await amdidnModel.findOne({ email });
+  const admin = await amdidnModel.findOne({ userName });
   if (!admin) {
     return res.status(401).json({ success:false, message:"Invalid credentials" });
   }

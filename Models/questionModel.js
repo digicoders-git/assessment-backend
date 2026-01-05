@@ -30,6 +30,5 @@ questionSchema.index(
   { unique: true }
 );
 
-const questionModel = mongoose.model("Question", questionSchema);
-
+const questionModel = mongoose.models.Question || mongoose.model("Question", questionSchema);
 export default questionModel;

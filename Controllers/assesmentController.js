@@ -94,7 +94,7 @@ export const getAssesmentByStatus = async (req, res) => {
         message: "Status is required"
       });
     }
-    const assessments = await assessmentModel.find({ status: status });
+    const assessments = await assessmentModel.find({ status: status }).populate("certificateName");
     return res.status(200).json({
       success: true,
       assessments

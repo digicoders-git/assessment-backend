@@ -8,7 +8,7 @@ certificateRouter.post("/certificate/create",uploadCertificateImage.single("cert
 certificateRouter.get("/certificate/getAll",getAllCertificates);
 certificateRouter.get("/certificate/get/:id",getSingleCertificate);
 certificateRouter.put("/certificate/update/:id",uploadCertificateImage.single("certificateImage"),updateCertificate);
-certificateRouter.put("/certificate/update/:id",uploadCertificateImage.single("certificateImage"),updateCertificate);
+certificateRouter.delete("/certificate/delete/:id",deleteCertificate);
 certificateRouter.patch("/certificate/toggle-status/:id",toggleCertificateStatus);
 
 export default certificateRouter;

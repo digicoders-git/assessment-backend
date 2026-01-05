@@ -1,6 +1,7 @@
-import Question from "../Models/questionModel.js";
-import Topic from "../Models/topic.js";
+
 import XLSX from "xlsx";
+import questionModel from "../models/questionModel.js";
+import topicModel from "../Models/topic.js";
 
 export const createQuestions = async (req, res) => {
   try {
@@ -11,7 +12,7 @@ export const createQuestions = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid data" });
     }
 
-    const existTopic = await Topic.findById(id);
+    const existTopic = await topicModel.findById(id);
     if (!existTopic) {
       return res.status(404).json({ success: false, message: "Topic not found" });
     }
@@ -26,7 +27,7 @@ export const createQuestions = async (req, res) => {
     let insertedCount = 0;
 
     try {
-      const result = await Question.insertMany(payload, { ordered: false });
+      const result = await questionModel.insertMany(payload, { ordered: false });
       insertedCount = result.length;
     } catch (err) {
       //  DUPLICATE ERROR IGNORE
@@ -62,7 +63,7 @@ export const getQuestionsByTopic = async (req, res) => {
       return res.status(400).json({success:false, message: "TopicId is required" });
     }
 
-    const questions = await Question.find({ topic:id });
+    const questions = await questionModel.find({ topic:id });
 
     if (!questions.length) {
       return res.status(404).json({success:false, message: "No questions found for the given topic" });
@@ -79,7 +80,7 @@ export const updateQuestion = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const question = await Question.findByIdAndUpdate(
+    const question = await questionModel.findByIdAndUpdate(
       id,
       req.body,
       { new: true, runValidators: true }
@@ -100,7 +101,7 @@ export const deleteQuestion = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const question = await Question.findByIdAndDelete(id);
+    const question = await questionModel.findByIdAndDelete(id);
     if (!question) {
       return res.status(404).json({success:false, message: "Question not found" });
     }
@@ -125,7 +126,7 @@ export const importQuestionsFromExcel = async (req, res) => {
     }
 
     // Topic check
-    const topic = await Topic.findById(id);
+    const topic = await topicModel.findById(id);
     if (!topic) {
       return res.status(404).json({success:false, message: "Topic not found" });
     }
@@ -197,7 +198,7 @@ export const importQuestionsFromExcel = async (req, res) => {
     }
 
     //  Insert (partial success allowed)
-    await Question.insertMany(questions, { ordered: false });
+    await questionModel.insertMany(questions, { ordered: false });
 
     //  Final response
     return res.status(201).json({

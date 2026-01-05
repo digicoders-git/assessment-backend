@@ -1,4 +1,5 @@
 import topicModel from "../Models/topic.js";
+import questionModel from "../models/questionModel.js";
 
 
 
@@ -20,14 +21,55 @@ export const createTopic = async (req, res) => {
   }
 };
 
+
 export const getAllTopics = async (req, res) => {
   try {
-    const topics = await topicModel.find();
-    res.status(200).json({success:true, message: "All topics", topics });
+    const questionCounts = await questionModel.aggregate([
+      {
+        $group: {
+          _id: "$topic",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const countMap = {};
+    questionCounts.forEach(item => {
+      countMap[item._id.toString()] = item.count;
+    });
+
+    const topics = await topicModel.find().lean();
+
+    const updatedTopics = topics.map(topic => ({
+      ...topic,
+      questionCout: countMap[topic._id.toString()] || 0
+    }));
+
+    const bulkOps = updatedTopics.map(topic => ({
+      updateOne: {
+        filter: { _id: topic._id },
+        update: { $set: { questionCout: topic.questionCout } }
+      }
+    }));
+
+    if (bulkOps.length) {
+      await topicModel.bulkWrite(bulkOps);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "All topics with question count",
+      topics: updatedTopics
+    });
+
   } catch (error) {
-    res.status(500).json({success:false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
+
 
 export const toggleTopicStatus = async (req, res) => {
   try {

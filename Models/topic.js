@@ -10,6 +10,10 @@ const topicSchema = new mongoose.Schema({
   status:{
     type: Boolean,
     default: true
+  },
+  questionCout: {
+    type: Number,
+    default: 0
   }
 });
 
