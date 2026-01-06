@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const questionIdCollectionSchema = new mongoose.Schema({
     assesmentId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Assesment",
+        ref: "Assessment",
         unique: true,
         required: true,
         index: true

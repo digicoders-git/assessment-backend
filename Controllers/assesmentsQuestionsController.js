@@ -86,12 +86,12 @@ export const getAssesmentById = async (req, res) => {
 
         if (!id) { return res.status(400).json({ success: false, message: "Assessment Id required" }) }
 
-        const assesment = await assesmentQuestionIdModel.findOne({ _id: id }).populate({
+        const assesment = await assesmentQuestionIdModel.findOne({assesmentId: id }).populate({
             path: "questionIds",
             populate: {
                 path: "topic"
             }
-        });
+        }).populate("assesmentId");
 
         if (!assesment) {
             return res.status(404).json({ success: false, message: "Assessment not found" });

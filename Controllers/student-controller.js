@@ -50,17 +50,45 @@ export const existStudent = async (req,res)=>{
     }
 }
 
-export const getAllStudent = async (req, res)=>{
-    try {
-        const allStudent = await studentModel.find();
-        if(!allStudent){
-            return res.status(404).json({success:false, message: "Student not found"})
+export const getAllStudent = async (req, res) => {
+  try {
+    const students = await studentModel.aggregate([
+      { $sort: { createdAt: -1 } },
+
+      {
+        $group: {
+          _id: "$mobile",
+          student: { $first: "$$ROOT" } // latest student
         }
-        return res.status(200).json({success:true, message: "Student found", allStudent})
-    } catch (error) {
-        return res.status(500).json({success:false, message:'intetnal server error', error: error.message})
+      },
+
+      { $replaceRoot: { newRoot: "$student" } },
+
+      { $sort: { createdAt: -1 } }
+    ]);
+
+    if (!students.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found"
+      });
     }
-}  
+
+    return res.status(200).json({
+      success: true,
+      message: "Student found",
+      students
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "internal server error",
+      error: error.message
+    });
+  }
+};
+ 
 
 export const getStudentByAssesmet = async (req, res)=>{
     try {

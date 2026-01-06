@@ -4,32 +4,58 @@ import amdidnModel from "../Models/adminModel.js";
 import cloudinary from "../Config/cloudinary.js";
 
 export const adminLogin = async (req, res) => {
-  const { userName, password } = req.body;
+  try {
+    const { userName, password } = req.body;
 
-  const admin = await amdidnModel.findOne({ userName });
-  if (!admin) {
-    return res.status(401).json({ success:false, message:"Invalid credentials" });
+    if (!userName || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Username and password are required"
+      });
+    }
+
+    const admin = await amdidnModel.findOne({ userName });
+    if (!admin) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid Username"
+      });
+    }
+
+    const isMatch = await bcrypt.compare(password, admin.password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid Password"
+      });
+    }
+
+    const token = jwt.sign(
+      { adminId: admin._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    res.cookie("adminToken", token, {
+      httpOnly: true,
+      secure: false, // prod me true
+      sameSite: "strict"
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Login successful"
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
   }
-
-  const isMatch = await bcrypt.compare(password, admin.password);
-  if (!isMatch) {
-    return res.status(401).json({ success:false, message:"Invalid credentials" });
-  }
-
-  const token = jwt.sign(
-    { adminId: admin._id },
-    process.env.JWT_SECRET,
-    { expiresIn: "1d" }
-  );
-
-  res.cookie("adminToken", token, {
-    httpOnly: true,
-    secure: false,
-    sameSite: "strict"
-  });
-
-  res.status(200).json({ success:true, message:"Login successful" });
 };
+
 
 export const adminLogout = async (req, res) => {
   res.clearCookie("adminToken");
@@ -39,7 +65,7 @@ export const adminLogout = async (req, res) => {
 // get admin
 export const getAdmin = async (req, res) => {
   try {
-    const admin = await amdidnModel.findById(req.adminId);
+    const admin = await amdidnModel.find().select('-password');
     if (!admin) {
       return res.status(404).json({ success: false, message: "Admin not found" });
     }

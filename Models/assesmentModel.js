@@ -47,6 +47,18 @@ const assessmentSchema = new mongoose.Schema({
   status: {
     type: Boolean,
     default: true
+  },
+  start:{
+    type: Number,
+    default:0
+  },
+  submit:{
+    type: Number,
+    default:0
+  },
+  count:{
+    type:Number,
+    default:0
   }
 }, { timestamps: true });
 

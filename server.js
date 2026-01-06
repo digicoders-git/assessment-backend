@@ -26,8 +26,10 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(cors());       // will be update at finel lounch
-app.use(express.urlencoded({ extended: true }));
+app.use(cors({
+  origin: "http://localhost:5173", // Aapka port
+  credentials: true
+}));app.use(express.urlencoded({ extended: true }));
 
 // Database connection
 dbConnect();

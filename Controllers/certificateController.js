@@ -149,57 +149,71 @@ export const getSingleCertificate = async (req, res) => {
 export const updateCertificate = async (req, res) => {
   try {
     const { id } = req.params;
+
     if (!id) {
       return res.status(400).json({
         success: false,
-        message: "Certificate ID is required"
+        message: "certificate id required",
       });
     }
 
-    // Parse nested form-data fields correctly
-    const updatedData = qs.parse(req.body);
-
-    // Fetch existing certificate
-    const existingCertificate = await certificateModel.findById(id);
-    if (!existingCertificate) {
+    const certificate = await certificateModel.findById(id);
+    if (!certificate) {
       return res.status(404).json({
         success: false,
-        message: "Certificate not found"
+        message: "certificate not found",
       });
     }
 
-    // If new image uploaded
-    if (req.file) {
-      // Delete old image from Cloudinary (cost-safe)
-      if (existingCertificate.certificateImage) {
-        const publicId = existingCertificate.certificateImage
-          .split("/")
-          .pop()
-          .split(".")[0];
+    const updateData = {};
+    const unsetData = {};
 
-        await cloudinary.uploader.destroy(`certificates/${publicId}`);
+    // ===== REQUIRED / MAIN FIELDS =====
+    if (req.body.certificateName) {
+      updateData.certificateName = req.body.certificateName;
+    }
+
+    // ===== STUDENT NAME (optional update, never unset) =====
+    const studentName = buildTextConfig(req.body, "studentName");
+    if (studentName && isValidTextConfig(studentName)) {
+      updateData.studentName = studentName;
+    }
+
+    // ===== OPTIONAL FIELDS (unset if missing) =====
+    const optionalFields = ["assessmentName", "assessmentCode", "collegeName", "date"];
+
+    optionalFields.forEach((key) => {
+      const cfg = buildTextConfig(req.body, key);
+
+      if (cfg && isValidTextConfig(cfg)) {
+        updateData[key] = cfg;       // update/add
+      } else {
+        unsetData[key] = "";         // remove from DB
       }
+    });
 
-      // Upload new image
+    // ===== CERTIFICATE IMAGE (optional) =====
+    if (req.file) {
       const uploadResult = await cloudinary.uploader.upload(
         `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
         { folder: "certificates" }
       );
-
-      updatedData.certificateImage = uploadResult.secure_url;
+      updateData.certificateImage = uploadResult.secure_url;
     }
 
-    // Update certificate
     const updatedCertificate = await certificateModel.findByIdAndUpdate(
       id,
-      updatedData,
-      { new: true, runValidators: true }
+      {
+        ...(Object.keys(updateData).length && { $set: updateData }),
+        ...(Object.keys(unsetData).length && { $unset: unsetData }),
+      },
+      { new: true }
     );
 
     return res.status(200).json({
       success: true,
       message: "Certificate updated successfully",
-      certificate: updatedCertificate
+      certificate: updatedCertificate,
     });
 
   } catch (error) {
@@ -207,10 +221,10 @@ export const updateCertificate = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Internal server error",
-      error: error.message
     });
   }
 };
+
 
 
 // DELETE certificate by ID

@@ -1,5 +1,10 @@
 import assessmentModel from "../Models/assesmentModel.js";
+import assesmentQuestionIdModel from "../Models/assesmentQuestionsModel.js";
 import counterModel from "../Models/counterModel.js";
+import resultModel from "../Models/resultModel.js";
+import studentModel from "../Models/studentModel.js";
+import { toKolkataTime } from "../utils/timezoneHelper.js";
+
 
 
 export const createAssessment = async (req, res) => {
@@ -85,27 +90,125 @@ export const createAssessment = async (req, res) => {
 };
 
 
-export const getAssesmentByStatus = async (req, res) => {
+
+export const getAllAssessments = async (req, res) => {
   try {
-    const { status } = req.params;
-    if (!status) {
-      return res.status(400).json({
+    const assessments = await assessmentModel
+      .find()
+      .populate("certificateName")
+      .sort({ createdAt: -1 }); // latest first
+
+    if (!assessments || assessments.length === 0) {
+      return res.status(404).json({
         success: false,
-        message: "Status is required"
+        message: "No assessments found"
       });
     }
-    const assessments = await assessmentModel.find({ status: status }).populate("certificateName");
+
     return res.status(200).json({
       success: true,
+      message: "Assessments found",
+      count: assessments.length,
       assessments
     });
+
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: "Internal server error",
+      error: error.message
     });
   }
-}
+};
+
+
+export const getAssesmentByStatus = async (req, res) => {
+  try {
+    const { status } = req.params;
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: "Status is required",
+      });
+    }
+
+    const assessments = await assessmentModel
+      .find({ status })
+      .populate("certificateName");
+
+    const formattedAssessments = await Promise.all(
+      assessments.map(async (assessment) => {
+        const obj = assessment.toObject();
+
+        const assessmentQuestions = await assesmentQuestionIdModel.findOne({
+          assesmentId: obj._id,
+        });
+
+        const questionCount = assessmentQuestions
+          ? assessmentQuestions.questionIds.length
+          : 0;
+
+      
+        const startCount = await studentModel.countDocuments({
+          code: obj.assessmentCode,
+        });
+
+        
+        const submittedStudents = await resultModel
+          .find()
+          .populate({
+            path: "student",
+            match: { code: obj.assessmentCode },
+            select: "_id",
+          });
+
+        // unique student ids
+        const uniqueStudentIds = new Set(
+          submittedStudents
+            .filter((r) => r.student) // only matching code
+            .map((r) => r.student._id.toString())
+        );
+
+        const submitCount = uniqueStudentIds.size;
+
+        const updatePayload = {};
+
+        if (obj.count !== questionCount) updatePayload.count = questionCount;
+        if (obj.start !== startCount) updatePayload.start = startCount;
+        if (obj.submit !== submitCount) updatePayload.submit = submitCount;
+
+        if (Object.keys(updatePayload).length) {
+          await assessmentModel.findByIdAndUpdate(obj._id, updatePayload);
+        }
+
+        
+        return {
+          ...obj,
+          count: questionCount,
+          start: startCount,
+          submit: submitCount,
+          startDateTime: toKolkataTime(obj.startDateTime),
+          endDateTime: toKolkataTime(obj.endDateTime),
+        };
+      })
+    );
+
+    return res.status(200).json({
+      success: true,
+      assessments: formattedAssessments,
+    });
+  } catch (error) {
+    console.error("GET ASSESSMENT ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+
+
 
 
 export const updateAssessment = async (req, res) => {

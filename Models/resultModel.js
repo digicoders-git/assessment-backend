@@ -50,7 +50,7 @@ const studenResultSchema = new mongoose.Schema({
     },
     rank: {
         type: String,
-        required: true
+        required: false
     }
 },{ timestamps: true })
 

@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import resultModel from "../Models/resultModel.js";
+import studentModel from "../Models/studentModel.js";
 // import axios from "axios";
 // import { createCanvas, loadImage } from "canvas";
 // import studentModel from "../Models/studentModel.js";
@@ -7,6 +8,8 @@ import resultModel from "../Models/resultModel.js";
 
 
 // create result
+
+
 export const createResult = async (req, res) => {
   try {
     const {
@@ -19,8 +22,7 @@ export const createResult = async (req, res) => {
       correct,
       incorrect,
       marks,
-      duration,
-      rank
+      duration
     } = req.body;
 
     if (
@@ -32,8 +34,7 @@ export const createResult = async (req, res) => {
       !correct ||
       !incorrect ||
       !marks ||
-      !duration ||
-      !rank
+      !duration
     ) {
       return res.status(400).json({
         success: false,
@@ -41,48 +42,22 @@ export const createResult = async (req, res) => {
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(student)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid student id"
-      });
+    // 🔹 get student
+    const studentData = await studentModel.findById(student);
+    if (!studentData) {
+      return res.status(404).json({ success: false, message: "Student not found" });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(assesmentQuestions)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid assessmentQuestions id"
-      });
-    }
+    // 🔹 check reattempt (same mobile + same assessment)
+    const alreadyAttempted = await resultModel
+      .findOne({ assesmentQuestions })
+      .populate("student");
 
-    if (!Array.isArray(answers)) {
-      return res.status(400).json({
-        success: false,
-        message: "Answers must be an array"
-      });
-    }
+    const isReattempt =
+      alreadyAttempted && alreadyAttempted.student.mobile === studentData.mobile;
 
-    for (const ans of answers) {
-      if (
-        !ans.question ||
-        !ans.selectedOption ||
-        typeof ans.isCorrect !== "boolean"
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid answer structure"
-        });
-      }
-
-      if (!mongoose.Types.ObjectId.isValid(ans.question)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid question id in answers"
-        });
-      }
-    }
-
-    const result = await resultModel.create({
+    // 🔹 create result FIRST (rank later)
+    const newResult = await resultModel.create({
       student,
       assesmentQuestions,
       answers,
@@ -93,23 +68,38 @@ export const createResult = async (req, res) => {
       incorrect,
       marks,
       duration,
-      rank
+      rank: isReattempt ? null : 0 // temp
     });
+
+    //  ONLY if FIRST ATTEMPT → recalculate ranks
+    if (!isReattempt) {
+      const firstAttempts = await resultModel
+        .find({ assesmentQuestions, rank: { $ne: null } })
+        .sort({ marks: -1, createdAt: 1 });
+
+      for (let i = 0; i < firstAttempts.length; i++) {
+        await resultModel.findByIdAndUpdate(firstAttempts[i]._id, {
+          rank: String(i + 1)
+        });
+      }
+    }
 
     return res.status(201).json({
       success: true,
-      message: "Submitted",
-      result
+      message: isReattempt ? "Reattempt submitted" : "Result submitted",
+      result: newResult
     });
 
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
-      error: error.message
+      message: error.message
     });
   }
 };
+
+
+// getallresult
 
 // get result by assesment
 export const getResultsByAssessmentId = async (req, res) => {
