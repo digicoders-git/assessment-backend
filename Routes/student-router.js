@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { existStudent, getAllStudent, getStudentByAssesmet, studen_reg, updateStuednt } from '../Controllers/student-controller.js';
+import { academicData, existStudent, getAllStudent, getStudentByAssesmet, studen_reg, updateStuednt } from '../Controllers/student-controller.js';
 
 const studentRoute = express.Router();
 
@@ -9,5 +9,9 @@ studentRoute.get('/admin/getAll',getAllStudent)
 studentRoute.get('/admin/getByAssesment/:assesmentCode',getStudentByAssesmet)
 studentRoute.post('/exist',existStudent)
 studentRoute.put('/admin/update/:id',updateStuednt)
+
+
+// academic data 
+studentRoute.get('/admin/getAcademicData', academicData)
 
 export default studentRoute;

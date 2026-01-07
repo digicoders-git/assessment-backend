@@ -80,28 +80,52 @@ export const addQuestionsToAssessment = async (req, res) => {
   }
 };
 
-export const getAssesmentById = async (req, res) => {
-    try {
-        const { id } = req.params;
+export const getAssesmentByCode = async (req, res) => {
+  try {
+    const { code } = req.params; // assessmentCode
 
-        if (!id) { return res.status(400).json({ success: false, message: "Assessment Id required" }) }
-
-        const assesment = await assesmentQuestionIdModel.findOne({assesmentId: id }).populate({
-            path: "questionIds",
-            populate: {
-                path: "topic"
-            }
-        }).populate("assesmentId");
-
-        if (!assesment) {
-            return res.status(404).json({ success: false, message: "Assessment not found" });
-        }
-
-        res.status(200).json({ success: true, message: "Assessment found", data: assesment });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+    if (!code) {
+      return res.status(400).json({
+        success: false,
+        message: "Assessment code required"
+      });
     }
+
+    const assesment = await assesmentQuestionIdModel
+      .findOne()
+      .populate({
+        path: "questionIds",
+        populate: {
+          path: "topic"
+        }
+      })
+      .populate({
+        path: "assesmentId",
+        match: { assessmentCode: code.toUpperCase() } 
+      });
+
+    //  agar assessmentCode match nahi hua
+    if (!assesment) {
+      return res.status(404).json({
+        success: false,
+        message: "Assessment not found for this code"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Assessment found",
+      data: assesment
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };
+
 
 export const deleteQuestionFromAssessment = async (req, res) => {
     try {

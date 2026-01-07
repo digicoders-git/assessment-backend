@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import resultModel from "../Models/resultModel.js";
 import studentModel from "../Models/studentModel.js";
+import { toKolkataTime } from "../utils/timezoneHelper.js";
 // import axios from "axios";
 // import { createCanvas, loadImage } from "canvas";
 // import studentModel from "../Models/studentModel.js";
@@ -42,21 +43,37 @@ export const createResult = async (req, res) => {
       });
     }
 
+    // 🔹 SAME studentId + SAME assessment → BLOCK
+    const alreadySubmitted = await resultModel.findOne({
+      student,
+      assesmentQuestions
+    });
+
+    if (alreadySubmitted) {
+      return res.status(409).json({
+        success: false,
+        message: "Result already submitted for this student"
+      });
+    }
+
     // 🔹 get student
     const studentData = await studentModel.findById(student);
     if (!studentData) {
-      return res.status(404).json({ success: false, message: "Student not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Student not found"
+      });
     }
 
     // 🔹 check reattempt (same mobile + same assessment)
-    const alreadyAttempted = await resultModel
+    const mobileAttempt = await resultModel
       .findOne({ assesmentQuestions })
       .populate("student");
 
     const isReattempt =
-      alreadyAttempted && alreadyAttempted.student.mobile === studentData.mobile;
+      mobileAttempt && mobileAttempt.student.mobile === studentData.mobile;
 
-    // 🔹 create result FIRST (rank later)
+    // 🔹 create result
     const newResult = await resultModel.create({
       student,
       assesmentQuestions,
@@ -68,10 +85,10 @@ export const createResult = async (req, res) => {
       incorrect,
       marks,
       duration,
-      rank: isReattempt ? null : 0 // temp
+      rank: isReattempt ? null : 0
     });
 
-    //  ONLY if FIRST ATTEMPT → recalculate ranks
+    // 🔹 ONLY first attempts → recalculate ranks
     if (!isReattempt) {
       const firstAttempts = await resultModel
         .find({ assesmentQuestions, rank: { $ne: null } })
@@ -97,6 +114,7 @@ export const createResult = async (req, res) => {
     });
   }
 };
+
 
 
 // getallresult
@@ -216,23 +234,48 @@ export const getResultsByStudent = async (req, res) => {
     }
 
     const results = await resultModel
-      .find({ student: new mongoose.Types.ObjectId(id) })
+      .find({ student: id })
       .populate("student")
       .populate({
         path: "answers.question",
         populate: { path: "topic" }
       })
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 }).populate({
+    path: "assesmentQuestions",
+    populate: {
+      path: "assesmentId",
+      select: "assessmentName"
+    }
+  })
 
     const formattedResults = results.map(result => ({
+      //  RESULT basic fields
+      _id: result._id,
       student: result.student,
+      assessmentQuestions: result.assesmentQuestions,
+
+      total: result.total,
+      attempted: result.attempted,
+      unattempted: result.unattempted,
+      correct: result.correct,
+      incorrect: result.incorrect,
+
       marks: result.marks,
+      duration: result.duration,
+      rank: result.rank,
+
+      //  RESULT createdAt (Kolkata)
+      createdAt: toKolkataTime(result.createdAt),
+      updatedAt: toKolkataTime(result.updatedAt),
+
+      //  QUESTIONS + ANSWERS
       questions: result.answers.map(ans => ({
         _id: ans.question?._id,
         question: ans.question?.question,
         options: ans.question?.options,
         selectedOption: ans.selectedOption,
-        isCorrect: ans.isCorrect
+        isCorrect: ans.isCorrect,
+        topic: ans.question?.topic
       }))
     }));
 
@@ -250,6 +293,8 @@ export const getResultsByStudent = async (req, res) => {
     });
   }
 };
+
+
 
 
 // download certificate 

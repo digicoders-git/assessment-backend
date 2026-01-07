@@ -2,6 +2,12 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import amdidnModel from "../Models/adminModel.js";
 import cloudinary from "../Config/cloudinary.js";
+import studentModel from "../Models/studentModel.js";
+import certificateModel from "../Models/certificateModel.js";
+import assessmentModel from "../Models/assesmentModel.js";
+import resultModel from "../Models/resultModel.js";
+import topicModel from "../Models/topic.js";
+import questionModel from "../Models/questionModel.js";
 
 export const adminLogin = async (req, res) => {
   try {
@@ -59,7 +65,7 @@ export const adminLogin = async (req, res) => {
 
 export const adminLogout = async (req, res) => {
   res.clearCookie("adminToken");
-  res.status(200).json({ success:true,message:"Logout successful" });
+  res.status(200).json({ success: true, message: "Logout successful" });
 };
 
 // get admin
@@ -156,6 +162,60 @@ export const updateAdmin = async (req, res) => {
       message: "Admin updated successfully",
     });
 
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
+  }
+};
+
+
+// dashboard data counts 
+
+export const dashboardData = async (req, res) => {
+  try {
+    // students counts
+    const uniqueMobiles = await studentModel.distinct("mobile");
+    const totalStudents = uniqueMobiles.length;
+
+    // certificaet counts
+    const totalCertificates = await certificateModel.countDocuments();
+
+    // active assesment counts
+    const activeAssesment = await assessmentModel.countDocuments({ status: true });
+
+    // history assesment
+    const historyAssesment = await assessmentModel.countDocuments({ status: false });
+
+    // reuslts counts
+    const results = await resultModel.countDocuments();
+
+    // active topics count
+    const activeTopics = await topicModel.countDocuments({ status: true });
+
+    // inactive topics count
+    const inactiveTopics = await topicModel.countDocuments({ status: false });
+
+    // questions counts
+    const questions = await questionModel.countDocuments();
+
+
+    res.status(200).json({
+      success: true,
+      message: "Dashboard data fetched successfully",
+      data: {
+        totalStudents,
+        activeAssesment,
+        historyAssesment,
+        results,
+        activeTopics,
+        inactiveTopics,
+        questions,
+        totalCertificates,
+      }
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
