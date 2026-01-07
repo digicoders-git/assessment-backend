@@ -47,6 +47,15 @@ app.use('/admin', courseRouter);
 app.use('/admin', certificateRouter);
 app.use('/admin', resultRouter);
 
+// route not found 
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Route not found"
+  });
+});
+
+
 const port = process.env.PORT || 5000;
 app.listen(port, () => {
   console.log(`Server is running on port http://localhost:${port}`);
