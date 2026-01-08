@@ -30,7 +30,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(cors({
-  origin: "https://assesment-portal-digicoders.vercel.app/",
+  origin: "https://assesment-portal-digicoders.vercel.app",
   credentials: true
 }));app.use(express.urlencoded({ extended: true }));
 
