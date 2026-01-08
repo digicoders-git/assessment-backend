@@ -29,6 +29,10 @@ const Schema =  new mongoose.Schema({
         type: String,
         required: true
     },
+    certificate: {
+        type: String,
+        required: false
+    }
 }, {timestamps: true});
 
 const studentModel =

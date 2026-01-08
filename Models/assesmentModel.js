@@ -62,6 +62,9 @@ const assessmentSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
+assessmentSchema.index({ endDateTime: 1, status: 1 });
+
+
 const assessmentModel = mongoose.model('Assessment', assessmentSchema);
 
 export default assessmentModel;

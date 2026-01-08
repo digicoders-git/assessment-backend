@@ -1,6 +1,9 @@
 import dotenv from "dotenv";
 dotenv.config(); 
 
+// corn for auto deactive assesemnt after its enddatetime 
+import "./utils/corn.js"
+
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -27,7 +30,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(cors({
-  origin: "http://localhost:5173", // Aapka port
+  origin: "http://localhost:5173",
   credentials: true
 }));app.use(express.urlencoded({ extended: true }));
 

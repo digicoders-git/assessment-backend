@@ -295,12 +295,26 @@ export const toggleAssessmentStatus = async (req, res) => {
       });
     }
 
+    //  agar status false se true karna hai
+    if (assessment.status === false) {
+      const now = new Date();
+
+      // endDateTime cross ho chuka hai
+      if (now > assessment.endDateTime) {
+        return res.status(400).json({
+          success: false,
+          message: "Assessment has ended, cannot be activated now"
+        });
+      }
+    }
+
+    // toggle as usual
     assessment.status = !assessment.status;
     await assessment.save();
 
     return res.status(200).json({
       success: true,
-      message: `status ${assessment.status ? "Activated" : "DeActivated"}`,
+      message: `Status ${assessment.status ? "Activated" : "DeActivated"}`,
       status: assessment.status
     });
 
@@ -311,6 +325,7 @@ export const toggleAssessmentStatus = async (req, res) => {
     });
   }
 };
+
 
 
 

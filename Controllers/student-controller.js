@@ -3,6 +3,7 @@ import assessmentModel from "../Models/assesmentModel.js";
 import collegeModel from "../Models/collegeModel.js";
 import courseModel from "../Models/courseModel.js";
 import studentModel from "../Models/studentModel.js";
+import { uploadBufferToCloudinary } from "../utils/uploadCloudinary.js";
 
 
 export const studen_reg = async (req, res) => {
@@ -60,19 +61,54 @@ export const studen_reg = async (req, res) => {
 export const updateStuednt = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, mobile, email, college, year, course } = req.body;
-    if (!name || !mobile || !email || !college || !year || !course) {
-      return res.status(400).json({ success: false, message: "Every fields required" })
+
+    //  CASE 1 → only certificate upload
+    if (req.file) {
+      const certificateUrl = await uploadBufferToCloudinary(req.file.buffer);
+
+      const student = await studentModel.findByIdAndUpdate(
+        id,
+        { certificate: certificateUrl },
+        { new: true }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Certificate uploaded successfully",
+        student
+      });
     }
-    const updateStudent = await studentModel.findByIdAndUpdate(id, req.body, { new: true });
-    if (!updateStudent) {
-      return res.status(400).json({ success: false, message: "Something wnet wrong" })
+
+    //  CASE 2 → only student data update
+    if (Object.keys(req.body).length > 0) {
+      const updatedStudent = await studentModel.findByIdAndUpdate(
+        id,
+        req.body,
+        { new: true }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Student updated successfully",
+        student: updatedStudent
+      });
     }
-    return res.status(200).json({ success: true, message: "Student updated successfully", updateStudent })
+
+    //  nothing sent
+    return res.status(400).json({
+      success: false,
+      message: "No data or certificate provided"
+    });
+
   } catch (error) {
-    return res.status(500).json({ success: false, message: 'intetnal server error', error: error.message })
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
   }
-}
+};
+
 
 export const existStudent = async (req, res) => {
   try {
@@ -125,6 +161,17 @@ export const getAllStudent = async (req, res) => {
     });
   }
 };
+
+export const getSingle = async (req,res) => {
+  try {
+    const {id} = req.params;
+    const student = await studentModel.findOne({_id: id});
+    if(!student) return res.status(404).json({success: false,message:"no student found"});
+    return res.status(200).json({success:true,message:"studen found",student})
+  } catch (error) {
+    return res.status(500).json({success:false,message:"internel server error",error:error.message})
+  }
+}
 
 
 export const getStudentByAssesmet = async (req, res) => {

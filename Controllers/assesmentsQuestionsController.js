@@ -2,6 +2,8 @@
 import mongoose from "mongoose";
 import assesmentQuestionIdModel from "../Models/assesmentQuestionsModel.js";
 import questionModel from "../Models/questionModel.js";
+import { toKolkataTime } from "../utils/timezoneHelper.js";
+import assessmentModel from "../Models/assesmentModel.js";
 
 export const addQuestionsToAssessment = async (req, res) => {
   try {
@@ -82,40 +84,51 @@ export const addQuestionsToAssessment = async (req, res) => {
 
 export const getAssesmentByCode = async (req, res) => {
   try {
-    const { code } = req.params; // assessmentCode
+    const { code } = req.params;
 
-    if (!code) {
-      return res.status(400).json({
+    const assessment = await assessmentModel.findOne({
+      assessmentCode: code.toUpperCase()
+    });
+
+    if (!assessment) {
+      return res.status(404).json({
         success: false,
-        message: "Assessment code required"
+        message: "Assessment not found"
       });
     }
 
     const assesment = await assesmentQuestionIdModel
-      .findOne()
+      .findOne({ assesmentId: assessment._id })
       .populate({
-        path: "questionIds",
-        populate: {
-          path: "topic"
-        }
+        path: "assesmentId"
       })
       .populate({
-        path: "assesmentId",
-        match: { assessmentCode: code.toUpperCase() } 
+        path: "questionIds",
+        populate: { path: "topic" }
       });
 
-    //  agar assessmentCode match nahi hua
     if (!assesment) {
       return res.status(404).json({
         success: false,
-        message: "Assessment not found for this code"
+        message: "Assessment questions not found"
       });
     }
 
+    //  KOLKATA TIMEZONE FIX
+    const responseData = {
+      ...assesment.toObject(),
+      assesmentId: {
+        ...assesment.assesmentId.toObject(),
+        startDateTime: toKolkataTime(assesment.assesmentId.startDateTime),
+        endDateTime: toKolkataTime(assesment.assesmentId.endDateTime),
+        createdAt: toKolkataTime(assesment.assesmentId.createdAt),
+        updatedAt: toKolkataTime(assesment.assesmentId.updatedAt)
+      }
+    };
+
     return res.status(200).json({
       success: true,
-      message: "Assessment found",
-      data: assesment
+      data: responseData
     });
 
   } catch (error) {
@@ -125,6 +138,7 @@ export const getAssesmentByCode = async (req, res) => {
     });
   }
 };
+
 
 
 export const deleteQuestionFromAssessment = async (req, res) => {

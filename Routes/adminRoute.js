@@ -9,7 +9,7 @@ const adminRoute = express.Router();
 
 adminRoute.post('/login',adminLogin)
 adminRoute.post('/logout',adminLogout)
-adminRoute.get('/get',getAdmin)
+adminRoute.get('/get',adminAuth,getAdmin)
 adminRoute.put("/update/:id",uploadCertificateImage.single("image"),adminAuth,updateAdmin);
 
 // dashboard data 
