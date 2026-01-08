@@ -44,7 +44,7 @@ export const adminLogin = async (req, res) => {
 
     res.cookie("adminToken", token, {
       httpOnly: true,
-      secure: false, // prod me true
+      secure: true, // prod me true
       sameSite: "strict"
     });
 
