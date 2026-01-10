@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 import resultModel from "../Models/resultModel.js";
 import studentModel from "../Models/studentModel.js";
 import { toKolkataTime } from "../utils/timezoneHelper.js";
+import ExcelJS from "exceljs";
+
 // import axios from "axios";
 // import { createCanvas, loadImage } from "canvas";
 // import studentModel from "../Models/studentModel.js";
@@ -437,6 +439,141 @@ export const getResultsByStudent = async (req, res) => {
 //     });
 //   }
 // };
+
+
+// download excel file 
+
+
+
+export const downloadAssessmentResultsExcel = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid assessmentId",
+      });
+    }
+
+    //  Fetch results (same aggregation jo tum already use kar rahe ho)
+    const results = await resultModel.aggregate([
+      {
+        $lookup: {
+          from: "assesmentquestions",
+          localField: "assesmentQuestions",
+          foreignField: "_id",
+          as: "assesmentQuestions",
+        },
+      },
+      { $unwind: "$assesmentQuestions" },
+
+      {
+        $match: {
+          "assesmentQuestions.assesmentId": new mongoose.Types.ObjectId(id),
+        },
+      },
+
+      {
+        $lookup: {
+          from: "students",
+          localField: "student",
+          foreignField: "_id",
+          as: "student",
+        },
+      },
+      { $unwind: "$student" },
+
+      { $sort: { createdAt: 1 } },
+
+      {
+        $group: {
+          _id: "$student.mobile",
+          results: { $push: "$$ROOT" },
+        },
+      },
+
+      {
+        $project: {
+          firstSubmission: { $arrayElemAt: ["$results", 0] },
+        },
+      },
+    ]);
+
+    // 🔹 Flatten
+    let finalResults = results
+      .map((r) => r.firstSubmission)
+      .filter(Boolean);
+
+    //  IMPORTANT: Rank ke according sort
+    finalResults.sort(
+      (a, b) => Number(a.rank) - Number(b.rank)
+    );
+
+    // ================= EXCEL =================
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Assessment Results");
+
+    // 🔹 Header
+    worksheet.columns = [
+      { header: "Rank", key: "rank", width: 8 },
+      { header: "Name", key: "name", width: 20 },
+      { header: "Code", key: "code", width: 15 },
+      { header: "Course", key: "course", width: 15 },
+      { header: "Year", key: "year", width: 15 },
+      { header: "College", key: "college", width: 25 },
+      { header: "Phone", key: "phone", width: 15 },
+      { header: "Score", key: "score", width: 12 },
+      { header: "Duration", key: "duration", width: 12 },
+      { header: "Date & Time", key: "datetime", width: 22 },
+    ];
+
+    // 🔹 Rows
+    finalResults.forEach((item) => {
+      worksheet.addRow({
+        rank: item.rank,
+        name: item.student.name,
+        code: item.student.code,
+        course: item.student.course,
+        year: item.student.year,
+        college: item.student.college,
+        phone: item.student.mobile,
+        score: `${item.marks}/${item.total}`, 
+        duration: item.duration,
+        datetime: new Date(item.createdAt).toLocaleString("en-IN", {
+          timeZone: "Asia/Kolkata",
+        }),
+      });
+    });
+
+    // 🔹 Header styling
+    worksheet.getRow(1).font = { bold: true };
+
+    // 🔹 Response headers
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=assessment-results.xlsx"
+    );
+
+    // 🔹 Send file
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (error) {
+    console.error("EXCEL DOWNLOAD ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to download excel",
+      error: error.message,
+    });
+  }
+};
+
+
 
 
 

@@ -3,6 +3,7 @@ import assessmentModel from "../Models/assesmentModel.js";
 import collegeModel from "../Models/collegeModel.js";
 import courseModel from "../Models/courseModel.js";
 import studentModel from "../Models/studentModel.js";
+import ExcelJS from "exceljs";
 import { uploadBufferToCloudinary } from "../utils/uploadCloudinary.js";
 
 
@@ -201,3 +202,85 @@ export const academicData = async (req, res) => {
   return res.status(500).json({ success: false, message: 'intetnal server error', error: error.message })
 }
 }
+
+
+// dowmload excel file for students by assesments
+
+
+export const downloadStudentsByAssessmentExcel = async (req, res) => {
+  try {
+    const { assesmentCode } = req.params;
+
+    if (!assesmentCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Assessment code is required",
+      });
+    }
+
+    const students = await studentModel
+      .find({ code: assesmentCode })
+      .sort({ createdAt: 1 }); // oldest first (optional)
+
+    if (!students.length) {
+      return res.status(404).json({
+        success: false,
+        message: "No students found",
+      });
+    }
+
+    // ================= EXCEL =================
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Students List");
+
+    // 🔹 Columns
+    worksheet.columns = [
+      { header: "Name", key: "name", width: 20 },
+      { header: "Phone", key: "phone", width: 15 },
+      { header: "College", key: "college", width: 30 },
+      { header: "Year", key: "year", width: 15 },
+      { header: "Course", key: "course", width: 15 },
+      { header: "Date & Time", key: "datetime", width: 22 },
+    ];
+
+    // 🔹 Rows
+    students.forEach((student) => {
+      worksheet.addRow({
+        name: student.name,
+        phone: student.mobile,
+        college: student.college,
+        year: student.year,
+        course: student.course,
+        datetime: new Date(student.createdAt).toLocaleString("en-IN", {
+          timeZone: "Asia/Kolkata",
+        }),
+      });
+    });
+
+    // 🔹 Header bold
+    worksheet.getRow(1).font = { bold: true };
+
+    // 🔹 Response headers
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=students-${assesmentCode}.xlsx`
+    );
+
+    // 🔹 Send file
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (error) {
+    console.error("STUDENT EXCEL ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to download excel",
+      error: error.message,
+    });
+  }
+};
+

@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { academicData, existStudent, getAllStudent, getSingle, getStudentByAssesmet, studen_reg, updateStuednt } from '../Controllers/student-controller.js';
+import { academicData, downloadStudentsByAssessmentExcel, existStudent, getAllStudent, getSingle, getStudentByAssesmet, studen_reg, updateStuednt } from '../Controllers/student-controller.js';
 import { uploadCertificateImage } from '../Middleware/multer.js';
 
 const studentRoute = express.Router();
@@ -10,6 +10,7 @@ studentRoute.get('/admin/getAll',getAllStudent)
 studentRoute.get('/admin/getSingle/:id',getSingle)
 studentRoute.get('/admin/getByAssesment/:assesmentCode',getStudentByAssesmet)
 studentRoute.post('/exist',existStudent)
+studentRoute.get('/admin/student-excel-byassesment/:assesmentCode',downloadStudentsByAssessmentExcel)
 studentRoute.put('/admin/update/:id',uploadCertificateImage.single("certificate"),updateStuednt)
 
 
