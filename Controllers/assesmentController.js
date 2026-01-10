@@ -209,9 +209,17 @@ export const getAssesmentByStatus = async (req, res) => {
           count: questionCount,
           start: startCount,
           submit: submitCount,
-          startDateTime: toKolkataTime(obj.startDateTime),
-          endDateTime: toKolkataTime(obj.endDateTime),
+
+          //  convert only if exists
+          startDateTime: obj.startDateTime
+            ? toKolkataTime(obj.startDateTime)
+            : null,
+
+          endDateTime: obj.endDateTime
+            ? toKolkataTime(obj.endDateTime)
+            : null,
         };
+
       })
     );
 
