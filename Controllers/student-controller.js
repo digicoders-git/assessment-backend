@@ -207,51 +207,61 @@ export const academicData = async (req, res) => {
 // dowmload excel file for students by assesments
 
 
-export const downloadStudentsByAssessmentExcel = async (req, res) => {
+
+export const downloadStudentsExcel = async (req, res) => {
   try {
     const { assesmentCode } = req.params;
 
-    if (!assesmentCode) {
-      return res.status(400).json({
-        success: false,
-        message: "Assessment code is required",
-      });
+    let students = [];
+
+    if (assesmentCode) {
+      //  code ke students
+      students = await studentModel.find({ code: assesmentCode }).sort({ createdAt: 1 });
+
+      if (!students.length) {
+        return res.status(404).json({
+          success: false,
+          message: "Assessment code not found or no students",
+        });
+      }
+    } else {
+      //  all students (latest by mobile)
+      students = await studentModel.aggregate([
+        { $sort: { createdAt: -1 } },
+        {
+          $group: {
+            _id: "$mobile",
+            student: { $first: "$$ROOT" },
+          },
+        },
+        { $replaceRoot: { newRoot: "$student" } },
+        { $sort: { createdAt: 1 } },
+      ]);
     }
 
-    const students = await studentModel
-      .find({ code: assesmentCode })
-      .sort({ createdAt: 1 }); // oldest first (optional)
-
-    if (!students.length) {
-      return res.status(404).json({
-        success: false,
-        message: "No students found",
-      });
-    }
-
-    // ================= EXCEL =================
+    //  Excel workbook
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Students List");
+    const worksheet = workbook.addWorksheet("Students");
 
-    // 🔹 Columns
     worksheet.columns = [
-      { header: "Name", key: "name", width: 20 },
-      { header: "Phone", key: "phone", width: 15 },
+      { header: "Name", key: "name", width: 25 },
+      { header: "Phone", key: "mobile", width: 15 },
+      { header: "Email", key: "email", width: 30 },
       { header: "College", key: "college", width: 30 },
       { header: "Year", key: "year", width: 15 },
       { header: "Course", key: "course", width: 15 },
-      { header: "Date & Time", key: "datetime", width: 22 },
+      { header: "Date-Time", key: "createdAt", width: 22 },
     ];
 
-    // 🔹 Rows
-    students.forEach((student) => {
+    students.forEach((s) => {
       worksheet.addRow({
-        name: student.name,
-        phone: student.mobile,
-        college: student.college,
-        year: student.year,
-        course: student.course,
-        datetime: new Date(student.createdAt).toLocaleString("en-IN", {
+        name: s.name,
+        mobile: s.mobile,
+        email: s.email,
+        college: s.college,
+        year: s.year,
+        course: s.course,
+        createdAt: new Date(s.createdAt).toLocaleString("en-IN", {
           timeZone: "Asia/Kolkata",
         }),
       });
@@ -260,27 +270,26 @@ export const downloadStudentsByAssessmentExcel = async (req, res) => {
     // 🔹 Header bold
     worksheet.getRow(1).font = { bold: true };
 
-    // 🔹 Response headers
+    const fileName = assesmentCode
+      ? `students-${assesmentCode}.xlsx`
+      : `all-students.xlsx`;
+
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename=students-${assesmentCode}.xlsx`
-    );
+    res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
 
-    // 🔹 Send file
     await workbook.xlsx.write(res);
     res.end();
-
   } catch (error) {
-    console.error("STUDENT EXCEL ERROR:", error);
+    console.error("EXCEL DOWNLOAD ERROR:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to download excel",
+      message: "Internal server error",
       error: error.message,
     });
   }
 };
+
 
