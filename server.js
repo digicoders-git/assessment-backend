@@ -26,11 +26,14 @@ import resultRouter from "./Routes/resultRoute.js";
 
 
 const app = express();
+// origins
+const orgins = ["http://localhost:5173","https://assesment-portal-digicoders.vercel.app"]
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(cors({
-  origin: "https://assesment-portal-digicoders.vercel.app",
+  origin: orgins,
   credentials: true
 }));app.use(express.urlencoded({ extended: true }));
 

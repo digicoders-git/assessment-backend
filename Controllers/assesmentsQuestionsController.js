@@ -2,28 +2,50 @@
 import mongoose from "mongoose";
 import assesmentQuestionIdModel from "../Models/assesmentQuestionsModel.js";
 import questionModel from "../Models/questionModel.js";
-import { toKolkataTime } from "../utils/timezoneHelper.js";
 import assessmentModel from "../Models/assesmentModel.js";
+import { toKolkataTime } from "../utils/timezoneHelper.js";
 
 export const addQuestionsToAssessment = async (req, res) => {
   try {
     const { id } = req.params;
     const { questionIds } = req.body;
 
+    // 1️⃣ assessmentId validation
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, message: "Invalid assessmentId" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid assessmentId"
+      });
     }
 
     if (!Array.isArray(questionIds) || questionIds.length === 0) {
-      return res.status(400).json({ success: false, message: "questionIds must be a non-empty array" });
+      return res.status(400).json({
+        success: false,
+        message: "questionIds must be a non-empty array"
+      });
     }
 
+    // 2️⃣ Get assessment & totalQuestions
+    const assessment = await assessmentModel.findById(id).select("totalQuestions");
+    if (!assessment) {
+      return res.status(404).json({
+        success: false,
+        message: "Assessment not found"
+      });
+    }
+
+    const totalQuestionsLimit = assessment.totalQuestions;
+
+    // 3️⃣ Validate questionIds
     const validIds = questionIds.filter(qid =>
       mongoose.Types.ObjectId.isValid(qid)
     );
 
     if (validIds.length !== questionIds.length) {
-      return res.status(400).json({ success: false, message: "One or more invalid questionIds" });
+      return res.status(400).json({
+        success: false,
+        message: "One or more invalid questionIds"
+      });
     }
 
     const existingQuestions = await questionModel.find({
@@ -31,46 +53,84 @@ export const addQuestionsToAssessment = async (req, res) => {
     }).select("_id");
 
     if (existingQuestions.length !== validIds.length) {
-      return res.status(400).json({ success: false, message: "One or more questions do not exist" });
-    }
-
-    let assessmentQuestions = await assesmentQuestionIdModel.findOne({ assesmentId: id });
-
-    if (!assessmentQuestions) {
-      assessmentQuestions = await assesmentQuestionIdModel.create({
-        assesmentId: id,
-        questionIds: validIds
-      });
-
-      return res.status(201).json({
-        success: true,
-        message: "Questions assigned successfully"
+      return res.status(400).json({
+        success: false,
+        message: "One or more questions do not exist"
       });
     }
 
-    const existingSet = new Set(
-      assessmentQuestions.questionIds.map(q => q.toString())
-    );
+    // 4️⃣ Get existing assigned questions
+    let assessmentQuestions = await assesmentQuestionIdModel.findOne({
+      assesmentId: id
+    });
 
-    const newUniqueIds = validIds.filter(
+    const existingCount = assessmentQuestions
+      ? assessmentQuestions.questionIds.length
+      : 0;
+
+    // 🔴 LIMIT FULL
+    if (existingCount >= totalQuestionsLimit) {
+      return res.status(400).json({
+        success: false,
+        message: "Question limit already reached. Cannot add more questions.",
+        totalQuestionsLimit,
+        existingCount,
+        added: 0,
+        failed: validIds.length,
+        reason: "Assessment already has maximum questions"
+      });
+    }
+
+    // 5️⃣ Remove duplicates
+    const existingSet = assessmentQuestions
+      ? new Set(assessmentQuestions.questionIds.map(id => id.toString()))
+      : new Set();
+
+    const uniqueNewIds = validIds.filter(
       qid => !existingSet.has(qid.toString())
     );
 
-    if (newUniqueIds.length === 0) {
+    if (uniqueNewIds.length === 0) {
       return res.status(200).json({
         success: true,
-        message: "No new questions to add"
+        message: "No new questions to add (all already assigned)",
+        added: 0,
+        failed: 0
       });
     }
 
-    await assesmentQuestionIdModel.updateOne(
-      { assesmentId: id },
-      { $addToSet: { questionIds: { $each: newUniqueIds } } }
-    );
+    //  Apply limit logic
+    const remainingSlots = totalQuestionsLimit - existingCount;
 
+    const questionsToAdd = uniqueNewIds.slice(0, remainingSlots);
+    const failedQuestions = uniqueNewIds.slice(remainingSlots);
+
+    //  Save
+    if (!assessmentQuestions) {
+      assessmentQuestions = await assesmentQuestionIdModel.create({
+        assesmentId: id,
+        questionIds: questionsToAdd
+      });
+    } else {
+      await assesmentQuestionIdModel.updateOne(
+        { assesmentId: id },
+        { $addToSet: { questionIds: { $each: questionsToAdd } } }
+      );
+    }
+
+    //  Final response
     return res.status(200).json({
       success: true,
-      message: "New questions added successfully"
+      message: "Questions assignment processed",
+      totalQuestionsLimit,
+      previouslyAssigned: existingCount,
+      requested: validIds.length,
+      added: questionsToAdd.length,
+      failed: failedQuestions.length,
+      failedReason:
+        failedQuestions.length > 0
+          ? "Assessment question limit exceeded"
+          : null
     });
 
   } catch (error) {
@@ -81,6 +141,7 @@ export const addQuestionsToAssessment = async (req, res) => {
     });
   }
 };
+
 
 export const getAssesmentByCode = async (req, res) => {
   try {
@@ -108,11 +169,15 @@ export const getAssesmentByCode = async (req, res) => {
       });
 
     if (!assesment) {
-      return res.status(404).json({
-        success: false,
-        message: "Assessment questions not found"
+      return res.status(200).json({
+        success: true,
+        message: "No questions assigned yet",
+        count: 0,
+        assessment,
+        questions: []
       });
     }
+
 
     //  KOLKATA TIMEZONE FIX
     const responseData = {
@@ -142,24 +207,24 @@ export const getAssesmentByCode = async (req, res) => {
 
 
 export const deleteQuestionFromAssessment = async (req, res) => {
-    try {
-        const { assesmentQuestionId, questionId } = req.params;
+  try {
+    const { assesmentQuestionId, questionId } = req.params;
 
-        const existAssesmeQuestiontnId = await assesmentQuestionIdModel.findById({ _id: assesmentQuestionId });
-        if (!existAssesmeQuestiontnId) {
-            return res.status(404).json({ success: false, message: "AssesmentQuestionId not found" });
-        }
-        const questionArray = existAssesmeQuestiontnId.questionIds;
-        const existQuestionId = questionArray.includes(questionId);
-
-        if (!existQuestionId) {
-            return res.status(404).json({ success: false, message: "Question not found" });
-        }
-        await assesmentQuestionIdModel.findByIdAndUpdate({ _id: assesmentQuestionId }, { $pull: { questionIds: questionId } });
-
-        res.status(200).json({ success: true, message: "Question deleted" });
-
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+    const existAssesmeQuestiontnId = await assesmentQuestionIdModel.findById({ _id: assesmentQuestionId });
+    if (!existAssesmeQuestiontnId) {
+      return res.status(404).json({ success: false, message: "AssesmentQuestionId not found" });
     }
+    const questionArray = existAssesmeQuestiontnId.questionIds;
+    const existQuestionId = questionArray.includes(questionId);
+
+    if (!existQuestionId) {
+      return res.status(404).json({ success: false, message: "Question not found" });
+    }
+    await assesmentQuestionIdModel.findByIdAndUpdate({ _id: assesmentQuestionId }, { $pull: { questionIds: questionId } });
+
+    res.status(200).json({ success: true, message: "Question deleted" });
+
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };

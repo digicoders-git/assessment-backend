@@ -66,7 +66,7 @@ export const getQuestionsByTopic = async (req, res) => {
     const questions = await questionModel.find({ topic:id });
 
     if (!questions.length) {
-      return res.status(404).json({success:false, message: "No questions found for the given topic" });
+      return res.status(200).json({success:true, message: "No questions found for the given topic" });
     }
 
     res.status(200).json({success:true, message: "Questions found", questions });
