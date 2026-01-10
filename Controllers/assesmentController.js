@@ -115,14 +115,15 @@ export const getAllAssessments = async (req, res) => {
 
       return {
         ...obj,
-        startTime: obj.startTime
-          ? toKolkataTime(obj.startTime)
+        startDateTime: obj.startDateTime
+          ? toKolkataTime(obj.startDateTime)
           : null,
-        endTime: obj.endTime
-          ? toKolkataTime(obj.endTime)
+        endDateTime: obj.endDateTime
+          ? toKolkataTime(obj.endDateTime)
           : null
       };
     });
+
 
     return res.status(200).json({
       success: true,
@@ -169,12 +170,12 @@ export const getAssesmentByStatus = async (req, res) => {
           ? assessmentQuestions.questionIds.length
           : 0;
 
-      
+
         const startCount = await studentModel.countDocuments({
           code: obj.assessmentCode,
         });
 
-        
+
         const submittedStudents = await resultModel
           .find()
           .populate({
@@ -202,7 +203,7 @@ export const getAssesmentByStatus = async (req, res) => {
           await assessmentModel.findByIdAndUpdate(obj._id, updatePayload);
         }
 
-        
+
         return {
           ...obj,
           count: questionCount,
