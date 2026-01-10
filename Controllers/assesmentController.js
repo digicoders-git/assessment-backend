@@ -91,25 +91,44 @@ export const createAssessment = async (req, res) => {
 
 
 
+
 export const getAllAssessments = async (req, res) => {
   try {
     const assessments = await assessmentModel
       .find()
       .populate("certificateName")
-      .sort({ createdAt: -1 }); // latest first
+      .sort({ createdAt: -1 });
 
+    //  Empty is NOT error
     if (!assessments || assessments.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "No assessments found"
+      return res.status(200).json({
+        success: true,
+        message: "No assessments found",
+        count: 0,
+        assessments: []
       });
     }
+
+    //  Convert UTC → IST ONLY for response
+    const formattedAssessments = assessments.map(a => {
+      const obj = a.toObject();
+
+      return {
+        ...obj,
+        startTime: obj.startTime
+          ? toKolkataTime(obj.startTime)
+          : null,
+        endTime: obj.endTime
+          ? toKolkataTime(obj.endTime)
+          : null
+      };
+    });
 
     return res.status(200).json({
       success: true,
       message: "Assessments found",
-      count: assessments.length,
-      assessments
+      count: formattedAssessments.length,
+      assessments: formattedAssessments
     });
 
   } catch (error) {
@@ -120,6 +139,7 @@ export const getAllAssessments = async (req, res) => {
     });
   }
 };
+
 
 
 export const getAssesmentByStatus = async (req, res) => {
