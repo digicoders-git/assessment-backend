@@ -117,7 +117,7 @@ export const existStudent = async (req, res) => {
     if (existMobile) {
       return res.status(200).json({ success: true, message: `wlecome ${existMobile.name}`, existMobile })
     }
-    return res.status(404).json({ success: false, message: "new student" })
+    return res.status(200).json({ success: true, message: "new student" })
   } catch (error) {
     return res.status(500).json({ success: false, message: 'intetnal server error', error: error.message })
   }
