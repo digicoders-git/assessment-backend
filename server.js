@@ -27,7 +27,7 @@ import resultRouter from "./Routes/resultRoute.js";
 
 const app = express();
 // origins
-const orgins = ["http://localhost:5173","https://assesment-portal-digicoders.vercel.app","http://localhost:5174","https://erp.thedigicoders.com"]
+const orgins = ["http://localhost:5173","https://assesment-portal-digicoders.vercel.app","http://localhost:5174","https://erp.thedigicoders.com","https://student.thedigicoders.com"]
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
