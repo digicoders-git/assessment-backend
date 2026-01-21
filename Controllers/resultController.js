@@ -12,7 +12,6 @@ import ExcelJS from "exceljs";
 
 // create result
 
-
 export const createResult = async (req, res) => {
   try {
     const {
@@ -25,18 +24,18 @@ export const createResult = async (req, res) => {
       correct,
       incorrect,
       marks,
-      duration
+      duration // string like "05:20"
     } = req.body;
 
     if (
       !student ||
       !assesmentQuestions ||
-      !total ||
-      !attempted ||
-      !unattempted ||
-      !correct ||
-      !incorrect ||
-      !marks ||
+      total === undefined ||
+      attempted === undefined ||
+      unattempted === undefined ||
+      correct === undefined ||
+      incorrect === undefined ||
+      marks === undefined ||
       !duration
     ) {
       return res.status(400).json({
@@ -45,7 +44,7 @@ export const createResult = async (req, res) => {
       });
     }
 
-    // 🔹 SAME studentId + SAME assessment → BLOCK
+    //  BLOCK same student + same assessment
     const alreadySubmitted = await resultModel.findOne({
       student,
       assesmentQuestions
@@ -58,7 +57,7 @@ export const createResult = async (req, res) => {
       });
     }
 
-    // 🔹 get student
+    //  student check
     const studentData = await studentModel.findById(student);
     if (!studentData) {
       return res.status(404).json({
@@ -67,15 +66,16 @@ export const createResult = async (req, res) => {
       });
     }
 
-    // 🔹 check reattempt (same mobile + same assessment)
-    const mobileAttempt = await resultModel
+    //  check reattempt (same mobile + same assessment)
+    const previousAttempt = await resultModel
       .findOne({ assesmentQuestions })
       .populate("student");
 
     const isReattempt =
-      mobileAttempt && mobileAttempt.student.mobile === studentData.mobile;
+      previousAttempt &&
+      previousAttempt.student.mobile === studentData.mobile;
 
-    // 🔹 create result
+    //  create result (duration STRING hi rahegi)
     const newResult = await resultModel.create({
       student,
       assesmentQuestions,
@@ -90,22 +90,56 @@ export const createResult = async (req, res) => {
       rank: isReattempt ? null : 0
     });
 
-    // 🔹 ONLY first attempts → recalculate ranks
+    //  ONLY FIRST ATTEMPTS → RANK CALCULATION
     if (!isReattempt) {
-      const firstAttempts = await resultModel
-        .find({ assesmentQuestions, rank: { $ne: null } })
-        .sort({ marks: -1, createdAt: 1 });
+      const rankedResults = await resultModel.aggregate([
+        {
+          $match: {
+            assesmentQuestions: new mongoose.Types.ObjectId(assesmentQuestions),
+            rank: { $ne: null }
+          }
+        },
 
-      for (let i = 0; i < firstAttempts.length; i++) {
-        await resultModel.findByIdAndUpdate(firstAttempts[i]._id, {
-          rank: String(i + 1)
+        //  convert "mm:ss" → seconds (TEMP only)
+        {
+          $addFields: {
+            durationSeconds: {
+              $add: [
+                {
+                  $multiply: [
+                    {
+                      $toInt: {
+                        $arrayElemAt: [{ $split: ["$duration", ":"] }, 0]
+                      }
+                    },
+                    60
+                  ]
+                },
+                {
+                  $toInt: {
+                    $arrayElemAt: [{ $split: ["$duration", ":"] }, 1]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        { $sort: { marks: -1, durationSeconds: 1 } }
+      ]);
+
+      //  assign ranks
+      for (let i = 0; i < rankedResults.length; i++) {
+        await resultModel.findByIdAndUpdate(rankedResults[i]._id, {
+          rank: i + 1
         });
       }
     }
 
     return res.status(201).json({
       success: true,
-      message: isReattempt ? "Reattempt submitted" : "Result submitted",
+      message: isReattempt
+        ? "Reattempt submitted successfully"
+        : "Result submitted successfully",
       result: newResult
     });
 
@@ -116,6 +150,7 @@ export const createResult = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -222,6 +257,64 @@ export const getResultsByAssessmentId = async (req, res) => {
     });
   }
 };
+
+
+// get by number;
+
+export const getResultsByMobile = async (req, res) => {
+  try {
+    const { mobile } = req.params;
+
+    if (!mobile) {
+      return res.status(400).json({
+        success: false,
+        message: "Mobile number is required"
+      });
+    }
+
+    // 1️⃣ Find ALL students with same mobile
+    const students = await studentModel.find({ mobile });
+
+    if (!students || students.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No students found with this mobile number"
+      });
+    }
+
+    // 2️⃣ Extract student IDs
+    const studentIds = students.map(stu => stu._id);
+
+    // 3️⃣ Find ALL results + POPULATE assessmentName
+    const results = await resultModel
+      .find({ student: { $in: studentIds } })
+      .populate("student")
+      .populate({
+        path: "assesmentQuestions",
+        populate: {
+          path: "assesmentId",
+          select: "assessmentName"
+        }
+      })
+      .populate("answers.question")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      totalStudents: students.length,
+      totalResults: results.length,
+      results
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
 
 // get result by student 
 export const getResultsByStudent = async (req, res) => {

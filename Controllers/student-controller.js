@@ -126,51 +126,93 @@ export const existStudent = async (req, res) => {
 
 export const getAllStudent = async (req, res) => {
   try {
-    const students = await studentModel.aggregate([
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const { college, course, year, search } = req.query;
+
+    //  match filter
+    const matchStage = {};
+
+    if (college) {
+      matchStage.college = { $regex: college, $options: "i" };
+    }
+
+    if (course) {
+      matchStage.course = { $regex: course, $options: "i" };
+    }
+
+    if (year) {
+      matchStage.year = { $regex: year, $options: "i" };
+    }
+
+    //  backend search (name OR mobile)
+    if (search) {
+      matchStage.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { mobile: { $regex: search, $options: "i" } }
+      ];
+    }
+
+    const pipeline = [
+      { $match: matchStage },
+
       { $sort: { createdAt: -1 } },
 
       {
         $group: {
           _id: "$mobile",
-          student: { $first: "$$ROOT" } // latest student
+          student: { $first: "$$ROOT" }
         }
       },
 
       { $replaceRoot: { newRoot: "$student" } },
 
       { $sort: { createdAt: -1 } }
-    ]);
+    ];
 
-    if (!students.length) {
-      return res.status(404).json({
-        success: false,
-        message: "Student not found"
-      });
-    }
+    //  total count
+    const totalStudents = await studentModel.aggregate(pipeline);
+    const total = totalStudents.length;
+
+    //  pagination
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    const students = await studentModel.aggregate(pipeline);
 
     return res.status(200).json({
       success: true,
-      message: "Student found",
-      students
+      students,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
     });
 
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: "internal server error",
+      message: "Internal server error",
       error: error.message
     });
   }
 };
 
-export const getSingle = async (req,res) => {
+
+
+
+export const getSingle = async (req, res) => {
   try {
-    const {id} = req.params;
-    const student = await studentModel.findOne({_id: id});
-    if(!student) return res.status(404).json({success: false,message:"no student found"});
-    return res.status(200).json({success:true,message:"studen found",student})
+    const { id } = req.params;
+    const student = await studentModel.findOne({ _id: id });
+    if (!student) return res.status(404).json({ success: false, message: "no student found" });
+    return res.status(200).json({ success: true, message: "studen found", student })
   } catch (error) {
-    return res.status(500).json({success:false,message:"internel server error",error:error.message})
+    return res.status(500).json({ success: false, message: "internel server error", error: error.message })
   }
 }
 
@@ -178,15 +220,85 @@ export const getSingle = async (req,res) => {
 export const getStudentByAssesmet = async (req, res) => {
   try {
     const { assesmentCode } = req.params;
-    const student = await studentModel.find({ code: assesmentCode });
-    if (!student) {
-      return res.status(404).json({ success: false, message: "Student not found" })
+
+    //  pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    //  search & filters
+    const search = req.query.search || "";
+    const { college, year, course } = req.query;
+
+    if (!assesmentCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Assessment code is required"
+      });
     }
-    return res.status(200).json({ success: true, message: "Student found", student })
+
+    //  search only name & mobile
+    const searchQuery = search
+      ? {
+          $or: [
+            { name: { $regex: search, $options: "i" } },
+            { mobile: { $regex: search, $options: "i" } }
+          ]
+        }
+      : {};
+
+    //  filters
+    const filterQuery = {
+      ...(college && { college }),
+      ...(year && { year }),
+      ...(course && { course })
+    };
+
+    //  final match
+    const matchQuery = {
+      code: assesmentCode,
+      ...searchQuery,
+      ...filterQuery
+    };
+
+    //  total count
+    const total = await studentModel.countDocuments(matchQuery);
+
+    if (!total) {
+      return res.status(200).json({
+        success: true,
+        message: " No Student In This Assessment"
+      });
+    }
+
+    //  paginated students
+    const students = await studentModel
+      .find(matchQuery)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    return res.status(200).json({
+      success: true,
+      message: "Student found",
+      students,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    });
+
   } catch (error) {
-    return res.status(500).json({ success: false, message: 'intetnal server error', error: error.message })
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
   }
-}
+};
+
 
 
 // academic data 
@@ -199,8 +311,8 @@ export const academicData = async (req, res) => {
 
     return res.status(200).json({ success: true, message: "academic data", colleges, years, course })
   } catch (error) {
-  return res.status(500).json({ success: false, message: 'intetnal server error', error: error.message })
-}
+    return res.status(500).json({ success: false, message: 'intetnal server error', error: error.message })
+  }
 }
 
 
@@ -210,64 +322,74 @@ export const academicData = async (req, res) => {
 
 export const downloadStudentsExcel = async (req, res) => {
   try {
+    //  assessmentCode from params
     const { assesmentCode } = req.params;
 
-    let students = [];
+    //  other filters from query
+    const { college, year, course, search } = req.query;
 
+    const filter = {};
+
+    //  assessment logic (same as before)
     if (assesmentCode) {
-      //  code ke students
-      students = await studentModel.find({ code: assesmentCode }).sort({ createdAt: 1 });
-
-      if (!students.length) {
-        return res.status(404).json({
-          success: false,
-          message: "Assessment code not found or no students",
-        });
-      }
-    } else {
-      //  all students (latest by mobile)
-      students = await studentModel.aggregate([
-        { $sort: { createdAt: -1 } },
-        {
-          $group: {
-            _id: "$mobile",
-            student: { $first: "$$ROOT" },
-          },
-        },
-        { $replaceRoot: { newRoot: "$student" } },
-        { $sort: { createdAt: 1 } },
-      ]);
+      filter.code = assesmentCode;
     }
 
-    //  Excel workbook
+    if (college) filter.college = college;
+    if (year) filter.year = year;
+    if (course) filter.course = course;
+
+    //  Name OR Mobile (only one at a time)
+    if (search) {
+      if (/^\d{6,15}$/.test(search)) {
+        filter.mobile = search;
+      } else {
+        filter.name = { $regex: search, $options: "i" };
+      }
+    }
+
+    const students = await studentModel
+      .find(filter)
+      .sort({ createdAt: 1 });
+
+    //  NO DATA → NO EXCEL
+    if (!students.length) {
+      return res.status(200).json({
+        success: false,
+        message: "No data available",
+      });
+    }
+
+    //  Create Excel
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Students");
 
     worksheet.columns = [
       { header: "Name", key: "name", width: 25 },
-      { header: "Phone", key: "mobile", width: 15 },
+      { header: "Mobile", key: "mobile", width: 15 },
       { header: "Email", key: "email", width: 30 },
       { header: "College", key: "college", width: 30 },
-      { header: "Year", key: "year", width: 15 },
+      { header: "Year", key: "year", width: 10 },
       { header: "Course", key: "course", width: 15 },
+      { header: "Assessment Code", key: "code", width: 20 },
       { header: "Date-Time", key: "createdAt", width: 22 },
     ];
 
     students.forEach((s) => {
       worksheet.addRow({
-        name: s.name,
-        mobile: s.mobile,
-        email: s.email,
-        college: s.college,
-        year: s.year,
-        course: s.course,
+        name: s.name || "",
+        mobile: s.mobile || "",
+        email: s.email || "",
+        college: s.college || "",
+        year: s.year || "",
+        course: s.course || "",
+        code: s.code || "",
         createdAt: new Date(s.createdAt).toLocaleString("en-IN", {
           timeZone: "Asia/Kolkata",
         }),
       });
     });
 
-    // 🔹 Header bold
     worksheet.getRow(1).font = { bold: true };
 
     const fileName = assesmentCode
@@ -278,7 +400,10 @@ export const downloadStudentsExcel = async (req, res) => {
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
-    res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=${fileName}`
+    );
 
     await workbook.xlsx.write(res);
     res.end();
@@ -287,9 +412,9 @@ export const downloadStudentsExcel = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Internal server error",
-      error: error.message,
     });
   }
 };
+
 
 
