@@ -14,7 +14,7 @@ import ExcelJS from "exceljs";
 
 export const createResult = async (req, res) => {
   try {
-    const {
+    let {
       student,
       assesmentQuestions,
       answers = [],
@@ -24,8 +24,10 @@ export const createResult = async (req, res) => {
       correct,
       incorrect,
       marks,
-      duration // string like "05:20"
+      duration // "mm:ss"
     } = req.body;
+
+    marks = Number(marks);
 
     if (
       !student ||
@@ -35,16 +37,16 @@ export const createResult = async (req, res) => {
       unattempted === undefined ||
       correct === undefined ||
       incorrect === undefined ||
-      marks === undefined ||
+      Number.isNaN(marks) ||
       !duration
     ) {
       return res.status(400).json({
         success: false,
-        message: "All required fields must be provided"
+        message: "All required fields must be provided correctly"
       });
     }
 
-    //  BLOCK same student + same assessment
+    // BLOCK same student + same assessment
     const alreadySubmitted = await resultModel.findOne({
       student,
       assesmentQuestions
@@ -57,7 +59,7 @@ export const createResult = async (req, res) => {
       });
     }
 
-    //  student check
+    // student check
     const studentData = await studentModel.findById(student);
     if (!studentData) {
       return res.status(404).json({
@@ -66,7 +68,7 @@ export const createResult = async (req, res) => {
       });
     }
 
-    //  check reattempt (same mobile + same assessment)
+    // check reattempt (same mobile + same assessment)
     const previousAttempt = await resultModel
       .findOne({ assesmentQuestions })
       .populate("student");
@@ -75,7 +77,7 @@ export const createResult = async (req, res) => {
       previousAttempt &&
       previousAttempt.student.mobile === studentData.mobile;
 
-    //  create result (duration STRING hi rahegi)
+    // create result
     const newResult = await resultModel.create({
       student,
       assesmentQuestions,
@@ -85,12 +87,12 @@ export const createResult = async (req, res) => {
       unattempted,
       correct,
       incorrect,
-      marks,
+      marks,          
       duration,
       rank: isReattempt ? null : 0
     });
 
-    //  ONLY FIRST ATTEMPTS → RANK CALCULATION
+    // ONLY FIRST ATTEMPTS → RANK CALCULATION
     if (!isReattempt) {
       const rankedResults = await resultModel.aggregate([
         {
@@ -100,7 +102,7 @@ export const createResult = async (req, res) => {
           }
         },
 
-        //  convert "mm:ss" → seconds (TEMP only)
+        // convert duration "mm:ss" → seconds
         {
           $addFields: {
             durationSeconds: {
@@ -124,10 +126,11 @@ export const createResult = async (req, res) => {
             }
           }
         },
+
         { $sort: { marks: -1, durationSeconds: 1 } }
       ]);
 
-      //  assign ranks
+      // assign ranks
       for (let i = 0; i < rankedResults.length; i++) {
         await resultModel.findByIdAndUpdate(rankedResults[i]._id, {
           rank: i + 1
@@ -152,8 +155,6 @@ export const createResult = async (req, res) => {
 };
 
 
-
-
 // getallresult
 
 // get result by assesment
@@ -168,6 +169,42 @@ export const getResultsByAssessmentId = async (req, res) => {
       });
     }
 
+    // pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // filters & search
+    const { college, year, course, search = "" } = req.query;
+
+    // ---------------- STUDENT MATCH ----------------
+    let studentMatch = {};
+
+    if (college && college !== "all") {
+      studentMatch["student.college"] = college;
+    }
+
+    if (year && year !== "all") {
+      studentMatch["student.year"] = year;
+    }
+
+    if (course && course !== "all") {
+      studentMatch["student.course"] = course;
+    }
+
+    if (search && search.trim() !== "") {
+      const orConditions = [
+        { "student.name": { $regex: search, $options: "i" } }
+      ];
+
+      if (!isNaN(search)) {
+        orConditions.push({ "student.mobile": Number(search) });
+      }
+
+      studentMatch.$or = orConditions;
+    }
+
+    // ---------------- AGGREGATION ----------------
     const data = await resultModel.aggregate([
       // assesmentQuestions lookup
       {
@@ -180,7 +217,7 @@ export const getResultsByAssessmentId = async (req, res) => {
       },
       { $unwind: "$assesmentQuestions" },
 
-      // match assessmentId
+      // assessment filter
       {
         $match: {
           "assesmentQuestions.assesmentId": new mongoose.Types.ObjectId(id)
@@ -198,7 +235,10 @@ export const getResultsByAssessmentId = async (req, res) => {
       },
       { $unwind: "$student" },
 
-      // sort by createdAt (IMPORTANT)
+      //  APPLY FILTER + SEARCH HERE
+      { $match: studentMatch },
+
+      // sort by createdAt (oldest first → first attempt)
       { $sort: { createdAt: 1 } },
 
       // group by student mobile
@@ -221,10 +261,14 @@ export const getResultsByAssessmentId = async (req, res) => {
             ]
           }
         }
-      }
+      },
+
+      // pagination (ONLY on firstSubmission)
+      { $skip: skip },
+      { $limit: limit }
     ]);
 
-    // flatten response
+    // ---------------- FLATTEN ----------------
     const firstSubmission = [];
     const reattempt = [];
 
@@ -237,7 +281,7 @@ export const getResultsByAssessmentId = async (req, res) => {
       }
     });
 
-    // remove unwanted fields
+    // clean response
     const clean = doc => {
       const { assesmentQuestions, answers, questions, topics, ...rest } = doc;
       return rest;
@@ -246,7 +290,12 @@ export const getResultsByAssessmentId = async (req, res) => {
     return res.status(200).json({
       success: true,
       firstSubmission: firstSubmission.map(clean),
-      reattempt: reattempt.map(clean)
+      reattempt: reattempt.map(clean),
+      pagination: {
+        page,
+        limit,
+        count: firstSubmission.length
+      }
     });
 
   } catch (error) {
@@ -257,6 +306,7 @@ export const getResultsByAssessmentId = async (req, res) => {
     });
   }
 };
+
 
 
 // get by number;
@@ -538,19 +588,19 @@ export const getResultsByStudent = async (req, res) => {
 
 
 
+
+// Helper: Build student match for aggregation
+
 export const downloadAssessmentResultsExcel = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!id || !mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ success: false, message: "Invalid assessmentId" });
 
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid assessmentId",
-      });
-    }
+    const { college, year, course, search } = req.query;
 
-    //  Fetch results (same aggregation jo tum already use kar rahe ho)
-    const results = await resultModel.aggregate([
+    // ---------------- FETCH RESULTS ----------------
+    const pipeline = [
       {
         $lookup: {
           from: "assesmentquestions",
@@ -560,13 +610,9 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
         },
       },
       { $unwind: "$assesmentQuestions" },
-
       {
-        $match: {
-          "assesmentQuestions.assesmentId": new mongoose.Types.ObjectId(id),
-        },
+        $match: { "assesmentQuestions.assesmentId": new mongoose.Types.ObjectId(id) },
       },
-
       {
         $lookup: {
           from: "students",
@@ -576,38 +622,44 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
         },
       },
       { $unwind: "$student" },
+    ];
 
-      { $sort: { createdAt: 1 } },
+    // ---------------- APPLY FILTERS ----------------
+    const studentMatch = {};
 
-      {
-        $group: {
-          _id: "$student.mobile",
-          results: { $push: "$$ROOT" },
-        },
+    if (college && college !== "all") studentMatch["student.college"] = { $regex: college, $options: "i" };
+    if (year && year !== "all") studentMatch["student.year"] = { $regex: year, $options: "i" };
+    if (course && course !== "all") studentMatch["student.course"] = { $regex: course, $options: "i" };
+
+    if (search && search.trim() !== "") {
+      const orConditions = [{ "student.name": { $regex: search, $options: "i" } }];
+      const mobileDigits = search.replace(/\D/g, "");
+      if (mobileDigits) orConditions.push({ "student.mobile": Number(mobileDigits) }); // exact match
+      studentMatch["$or"] = orConditions;
+    }
+
+    if (Object.keys(studentMatch).length) {
+      pipeline.push({ $match: studentMatch });
+    }
+
+    pipeline.push({ $sort: { createdAt: 1 } });
+    pipeline.push({
+      $group: {
+        _id: "$student.mobile",
+        results: { $push: "$$ROOT" },
       },
+    });
+    pipeline.push({ $project: { firstSubmission: { $arrayElemAt: ["$results", 0] } } });
 
-      {
-        $project: {
-          firstSubmission: { $arrayElemAt: ["$results", 0] },
-        },
-      },
-    ]);
+    const results = await resultModel.aggregate(pipeline);
 
-    // 🔹 Flatten
-    let finalResults = results
-      .map((r) => r.firstSubmission)
-      .filter(Boolean);
+    const finalResults = results.map((r) => r.firstSubmission).filter(Boolean);
+    finalResults.sort((a, b) => Number(a.rank) - Number(b.rank));
 
-    //  IMPORTANT: Rank ke according sort
-    finalResults.sort(
-      (a, b) => Number(a.rank) - Number(b.rank)
-    );
-
-    // ================= EXCEL =================
+    // ---------------- EXCEL ----------------
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Assessment Results");
 
-    // 🔹 Header
     worksheet.columns = [
       { header: "Rank", key: "rank", width: 8 },
       { header: "Name", key: "name", width: 20 },
@@ -618,10 +670,9 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
       { header: "Phone", key: "phone", width: 15 },
       { header: "Score", key: "score", width: 12 },
       { header: "Duration", key: "duration", width: 12 },
-      { header: "Date & Time", key: "datetime", width: 22 },
+      { header: "Date", key: "datetime", width: 15 },
     ];
 
-    // 🔹 Rows
     finalResults.forEach((item) => {
       worksheet.addRow({
         rank: item.rank,
@@ -631,40 +682,26 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
         year: item.student.year,
         college: item.student.college,
         phone: item.student.mobile,
-        score: `${item.marks}/${item.total}`, 
+        score: `${item.marks}/${item.total}`,
         duration: item.duration,
-        datetime: new Date(item.createdAt).toLocaleString("en-IN", {
-          timeZone: "Asia/Kolkata",
-        }),
+        datetime: new Date(item.createdAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
       });
     });
 
-    // 🔹 Header styling
     worksheet.getRow(1).font = { bold: true };
 
-    // 🔹 Response headers
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
-    res.setHeader(
-      "Content-Disposition",
-      "attachment; filename=assessment-results.xlsx"
-    );
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=assessment-results.xlsx");
 
-    // 🔹 Send file
     await workbook.xlsx.write(res);
     res.end();
-
   } catch (error) {
     console.error("EXCEL DOWNLOAD ERROR:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to download excel",
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: "Failed to download excel", error: error.message });
   }
 };
+
+
 
 
 

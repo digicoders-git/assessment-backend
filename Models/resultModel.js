@@ -15,8 +15,8 @@ const studenResultSchema = new mongoose.Schema({
     },
     answers: [
         {
-            question: { type: mongoose.Schema.Types.ObjectId,ref: 'Question' },
-            selectedOption: { type: String},
+            question: { type: mongoose.Schema.Types.ObjectId, ref: 'Question' },
+            selectedOption: { type: String },
             isCorrect: { type: Boolean }
         }
     ],
@@ -41,7 +41,7 @@ const studenResultSchema = new mongoose.Schema({
         required: true
     },
     marks: {
-        type: String,
+        type: Number,
         required: true
     },
     duration: {
@@ -52,8 +52,8 @@ const studenResultSchema = new mongoose.Schema({
         type: String,
         required: false
     }
-},{ timestamps: true })
+}, { timestamps: true })
 
-const resultModel = mongoose.model('result',studenResultSchema);
+const resultModel = mongoose.model('result', studenResultSchema);
 
 export default resultModel;

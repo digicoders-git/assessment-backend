@@ -4,6 +4,7 @@ import collegeModel from "../Models/collegeModel.js";
 import courseModel from "../Models/courseModel.js";
 import studentModel from "../Models/studentModel.js";
 import ExcelJS from "exceljs";
+import PDFDocument from "pdfkit";
 import { uploadBufferToCloudinary } from "../utils/uploadCloudinary.js";
 
 
@@ -132,51 +133,45 @@ export const getAllStudent = async (req, res) => {
 
     const { college, course, year, search } = req.query;
 
-    //  match filter
+    // ---------------- MATCH FILTER ----------------
     const matchStage = {};
 
-    if (college) {
-      matchStage.college = { $regex: college, $options: "i" };
+    if (college) matchStage.college = { $regex: college, $options: "i" };
+    if (course) matchStage.course = { $regex: course, $options: "i" };
+    if (year) matchStage.year = { $regex: year, $options: "i" };
+
+    // ---------------- SEARCH (name OR mobile) ----------------
+    if (search && search.trim() !== "") {
+      const orConditions = [{ name: { $regex: search, $options: "i" } }];
+
+      // mobile search: only digits, convert to number
+      const mobileSearch = search.replace(/\D/g, "");
+      if (mobileSearch) {
+        orConditions.push({ mobile: Number(mobileSearch) });
+      }
+
+      matchStage.$or = orConditions;
     }
 
-    if (course) {
-      matchStage.course = { $regex: course, $options: "i" };
-    }
-
-    if (year) {
-      matchStage.year = { $regex: year, $options: "i" };
-    }
-
-    //  backend search (name OR mobile)
-    if (search) {
-      matchStage.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { mobile: { $regex: search, $options: "i" } }
-      ];
-    }
-
+    // ---------------- AGGREGATION PIPELINE ----------------
     const pipeline = [
       { $match: matchStage },
-
       { $sort: { createdAt: -1 } },
-
       {
         $group: {
           _id: "$mobile",
           student: { $first: "$$ROOT" }
         }
       },
-
       { $replaceRoot: { newRoot: "$student" } },
-
       { $sort: { createdAt: -1 } }
     ];
 
-    //  total count
+    // total count
     const totalStudents = await studentModel.aggregate(pipeline);
     const total = totalStudents.length;
 
-    //  pagination
+    // pagination
     pipeline.push({ $skip: skip });
     pipeline.push({ $limit: limit });
 
@@ -194,6 +189,7 @@ export const getAllStudent = async (req, res) => {
     });
 
   } catch (error) {
+    console.error("GET ALL STUDENTS ERROR:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -201,6 +197,7 @@ export const getAllStudent = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -221,66 +218,68 @@ export const getStudentByAssesmet = async (req, res) => {
   try {
     const { assesmentCode } = req.params;
 
-    //  pagination
+    // pagination
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    //  search & filters
+    // search & filters
     const search = req.query.search || "";
     const { college, year, course } = req.query;
 
-    if (!assesmentCode) {
-      return res.status(400).json({
-        success: false,
-        message: "Assessment code is required"
-      });
+    // ---------------- BASE QUERY ----------------
+    let query = {};
+    if (assesmentCode && assesmentCode !== "all") {
+      query.code = assesmentCode;
     }
 
-    //  search only name & mobile
-    const searchQuery = search
-      ? {
-          $or: [
-            { name: { $regex: search, $options: "i" } },
-            { mobile: { $regex: search, $options: "i" } }
-          ]
-        }
-      : {};
+    // ---------------- FILTERS ----------------
+    if (college && college !== "all") query.college = college;
+    if (year && year !== "all") query.year = year;
+    if (course && course !== "all") query.course = course;
 
-    //  filters
-    const filterQuery = {
-      ...(college && { college }),
-      ...(year && { year }),
-      ...(course && { course })
-    };
+    // ---------------- SEARCH (OR) ----------------
+    if (search && search.trim() !== "") {
+      const orConditions = [
+        { name: { $regex: search, $options: "i" } } // name search
+      ];
 
-    //  final match
-    const matchQuery = {
-      code: assesmentCode,
-      ...searchQuery,
-      ...filterQuery
-    };
+      // mobile search: remove non-digits and convert to number
+      const mobileSearch = search.replace(/\D/g, "");
+      if (mobileSearch) {
+        orConditions.push({ mobile: Number(mobileSearch) });
+      }
 
-    //  total count
-    const total = await studentModel.countDocuments(matchQuery);
+      query.$or = orConditions;
+    }
+
+    // ---------------- TOTAL COUNT ----------------
+    const total = await studentModel.countDocuments(query);
 
     if (!total) {
       return res.status(200).json({
         success: true,
-        message: " No Student In This Assessment"
+        message: "No Student found",
+        students: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0
+        }
       });
     }
 
-    //  paginated students
+    // ---------------- DATA FETCH ----------------
     const students = await studentModel
-      .find(matchQuery)
+      .find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
     return res.status(200).json({
       success: true,
-      message: "Student found",
+      message: "Student(s) found",
       students,
       pagination: {
         page,
@@ -291,6 +290,7 @@ export const getStudentByAssesmet = async (req, res) => {
     });
 
   } catch (error) {
+    console.error("GET STUDENT ERROR:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -298,6 +298,8 @@ export const getStudentByAssesmet = async (req, res) => {
     });
   }
 };
+
+
 
 
 
@@ -322,24 +324,18 @@ export const academicData = async (req, res) => {
 
 export const downloadStudentsExcel = async (req, res) => {
   try {
-    //  assessmentCode from params
     const { assesmentCode } = req.params;
-
-    //  other filters from query
     const { college, year, course, search } = req.query;
 
     const filter = {};
 
-    //  assessment logic (same as before)
-    if (assesmentCode) {
-      filter.code = assesmentCode;
-    }
-
+    // Assessment filter
+    if (assesmentCode) filter.code = assesmentCode;
     if (college) filter.college = college;
     if (year) filter.year = year;
     if (course) filter.course = course;
 
-    //  Name OR Mobile (only one at a time)
+    // Name OR Mobile search
     if (search) {
       if (/^\d{6,15}$/.test(search)) {
         filter.mobile = search;
@@ -348,19 +344,31 @@ export const downloadStudentsExcel = async (req, res) => {
       }
     }
 
+    // ------------------ FETCH DATA ------------------
     const students = await studentModel
       .find(filter)
-      .sort({ createdAt: 1 });
+      .sort({ createdAt: -1 }); // 🔥 latest first
 
-    //  NO DATA → NO EXCEL
-    if (!students.length) {
+    // ------------------ REMOVE DUPLICATES BY MOBILE ------------------
+    const uniqueMap = new Map(); // mobile -> student
+
+    students.forEach((s) => {
+      if (!uniqueMap.has(s.mobile)) {
+        uniqueMap.set(s.mobile, s); // first occurence = latest
+      }
+    });
+
+    const uniqueStudents = Array.from(uniqueMap.values());
+
+    // ------------------ NO DATA ------------------
+    if (!uniqueStudents.length) {
       return res.status(200).json({
         success: false,
         message: "No data available",
       });
     }
 
-    //  Create Excel
+    // ------------------ CREATE EXCEL ------------------
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Students");
 
@@ -375,7 +383,7 @@ export const downloadStudentsExcel = async (req, res) => {
       { header: "Date-Time", key: "createdAt", width: 22 },
     ];
 
-    students.forEach((s) => {
+    uniqueStudents.forEach((s) => {
       worksheet.addRow({
         name: s.name || "",
         mobile: s.mobile || "",
@@ -415,6 +423,149 @@ export const downloadStudentsExcel = async (req, res) => {
     });
   }
 };
+
+
+// downlaod pdf file for students
+
+
+export const downloadStudentsPDF = async (req, res) => {
+  try {
+    const { assesmentCode } = req.params;
+    const { college, year, course, search } = req.query;
+
+    const filter = {};
+
+    // ---------------- FILTERS ----------------
+    if (assesmentCode) filter.code = assesmentCode;
+    if (college) filter.college = college;
+    if (year) filter.year = year;
+    if (course) filter.course = course;
+
+    if (search) {
+      if (/^\d{6,15}$/.test(search)) {
+        filter.mobile = Number(search);
+      } else {
+        filter.name = { $regex: search, $options: "i" };
+      }
+    }
+
+    // ---------------- FETCH DATA ----------------
+    const students = await studentModel
+      .find(filter)
+      .sort({ createdAt: -1 });
+
+    // ---------------- REMOVE DUPLICATE MOBILE ----------------
+    const uniqueMap = new Map();
+    students.forEach((s) => {
+      const key = s.mobile?.toString();
+      if (!uniqueMap.has(key)) uniqueMap.set(key, s);
+    });
+    const uniqueStudents = Array.from(uniqueMap.values());
+
+    if (!uniqueStudents.length) {
+      return res.status(404).json({
+        success: false,
+        message: "No students found",
+      });
+    }
+
+    // ---------------- PDF SETUP ----------------
+    const doc = new PDFDocument({ margin: 40, size: "A4" });
+
+    const fileName = assesmentCode
+      ? `students-${assesmentCode}.pdf`
+      : `all-students.pdf`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+
+    doc.pipe(res);
+
+    // ---------------- TITLE ----------------
+    doc.fontSize(14).font("Helvetica-Bold").text("Students Report", {
+      align: "center",
+    });
+    doc.moveDown(1);
+
+    // ---------------- TABLE CONFIG ----------------
+    const columns = [
+      { key: "name", label: "Name", x: 40, width: 90 },
+      { key: "mobile", label: "Mobile", x: 130, width: 75 },
+      { key: "email", label: "Email", x: 205, width: 140 },
+      { key: "college", label: "College", x: 345, width: 95 },
+      { key: "year", label: "Year", x: 440, width: 45 },
+      { key: "course", label: "Course", x: 485, width: 60 },
+      { key: "createdAt", label: "Reg. Date", x: 545, width: 80 },
+    ];
+
+    let y = doc.y + 10;
+
+    // ---------------- HEADER ----------------
+    doc.fontSize(9).font("Helvetica-Bold");
+    columns.forEach((c) => {
+      doc.text(c.label, c.x, y, { width: c.width });
+    });
+
+    y += 18;
+    doc.font("Helvetica").fontSize(7);
+
+    // ---------------- HELPERS ----------------
+    const getCellText = (student, key) => {
+      if (key === "createdAt") {
+        const date = new Date(student.createdAt);
+        return date.toLocaleDateString("en-IN");
+      }
+      return (student[key] || "").toString();
+    };
+
+
+    const getTextHeight = (text, width) =>
+      doc.heightOfString(text || "", { width });
+
+    // ---------------- ROWS ----------------
+    uniqueStudents.forEach((s) => {
+      let rowHeight = 0;
+
+      // calculate max height
+      columns.forEach((c) => {
+        const h = getTextHeight(getCellText(s, c.key), c.width);
+        rowHeight = Math.max(rowHeight, h);
+      });
+
+      // page break
+      if (y + rowHeight > doc.page.height - 40) {
+        doc.addPage();
+        y = 40;
+      }
+
+      // draw row
+      columns.forEach((c) => {
+        doc.text(getCellText(s, c.key), c.x, y, {
+          width: c.width,
+          height: rowHeight,
+        });
+      });
+
+      y += rowHeight + 6; // row spacing
+    });
+
+    // ---------------- END ----------------
+    doc.end();
+  } catch (error) {
+    console.error("PDF DOWNLOAD ERROR:", error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+      });
+    }
+  }
+};
+
+
+
+
+
 
 
 

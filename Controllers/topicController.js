@@ -120,17 +120,31 @@ export const updateTopic = async (req, res) => {
   }
 };
 
+
 export const deleteTopic = async (req, res) => {
   try {
     const { id } = req.params;
 
     const topic = await topicModel.findByIdAndDelete(id);
     if (!topic) {
-      return res.status(404).json({success:false, message: "Topic not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Topic not found"
+      });
     }
 
-    res.status(200).json({success:true, message: "Topic deleted" });
+    await questionModel.deleteMany({ topic: id });
+
+    res.status(200).json({
+      success: true,
+      message: "Topic and related questions deleted successfully"
+    });
+
   } catch (error) {
-    res.status(500).json({success:false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
+
