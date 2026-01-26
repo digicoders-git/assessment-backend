@@ -700,12 +700,3 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
     return res.status(500).json({ success: false, message: "Failed to download excel", error: error.message });
   }
 };
-
-
-
-
-
-
-
-
-
