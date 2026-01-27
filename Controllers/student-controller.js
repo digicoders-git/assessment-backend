@@ -133,47 +133,62 @@ export const getAllStudent = async (req, res) => {
 
     const { college, course, year, search } = req.query;
 
-    // ---------------- MATCH FILTER ----------------
     const matchStage = {};
 
-    if (college) matchStage.college = { $regex: college, $options: "i" };
-    if (course) matchStage.course = { $regex: course, $options: "i" };
-    if (year) matchStage.year = { $regex: year, $options: "i" };
-
-    // ---------------- SEARCH (name OR mobile) ----------------
-    if (search && search.trim() !== "") {
-      const orConditions = [{ name: { $regex: search, $options: "i" } }];
-
-      // mobile search: only digits, convert to number
-      const mobileSearch = search.replace(/\D/g, "");
-      if (mobileSearch) {
-        orConditions.push({ mobile: Number(mobileSearch) });
-      }
-
-      matchStage.$or = orConditions;
+    // ---------- FILTERS ----------
+    // ---------- FILTERS (PARTIAL + CASE INSENSITIVE) ----------
+    if (college) {
+      matchStage.college = { $regex: college.trim(), $options: "i" };
     }
 
-    // ---------------- AGGREGATION PIPELINE ----------------
+    if (course) {
+      matchStage.course = { $regex: course.trim(), $options: "i" };
+    }
+
+    if (year) {
+      matchStage.year = { $regex: year.trim(), $options: "i" };
+    }
+
+
+    // ---------- SEARCH ----------
+    if (search && search.trim()) {
+      const digitSearch = search.replace(/\D/g, "");
+
+      matchStage.$or = [
+        { name: { $regex: search.trim(), $options: "i" } }
+      ];
+
+      if (digitSearch) {
+        matchStage.$or.push({
+          $expr: {
+            $regexMatch: {
+              input: { $toString: "$mobile" },
+              regex: digitSearch
+            }
+          }
+        });
+      }
+    }
+
     const pipeline = [
       { $match: matchStage },
       { $sort: { createdAt: -1 } },
+
       {
         $group: {
           _id: "$mobile",
           student: { $first: "$$ROOT" }
         }
       },
+
       { $replaceRoot: { newRoot: "$student" } },
       { $sort: { createdAt: -1 } }
     ];
 
-    // total count
-    const totalStudents = await studentModel.aggregate(pipeline);
-    const total = totalStudents.length;
+    const totalData = await studentModel.aggregate(pipeline);
+    const total = totalData.length;
 
-    // pagination
-    pipeline.push({ $skip: skip });
-    pipeline.push({ $limit: limit });
+    pipeline.push({ $skip: skip }, { $limit: limit });
 
     const students = await studentModel.aggregate(pipeline);
 
@@ -200,8 +215,6 @@ export const getAllStudent = async (req, res) => {
 
 
 
-
-
 export const getSingle = async (req, res) => {
   try {
     const { id } = req.params;
@@ -218,43 +231,68 @@ export const getStudentByAssesmet = async (req, res) => {
   try {
     const { assesmentCode } = req.params;
 
-    // pagination
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    // search & filters
-    const search = req.query.search || "";
-    const { college, year, course } = req.query;
+    const { search, college, year, course } = req.query;
 
-    // ---------------- BASE QUERY ----------------
-    let query = {};
+    // ---------------- MATCH STAGE ----------------
+    const matchStage = {};
+
     if (assesmentCode && assesmentCode !== "all") {
-      query.code = assesmentCode;
+      matchStage.code = assesmentCode;
     }
 
-    // ---------------- FILTERS ----------------
-    if (college && college !== "all") query.college = college;
-    if (year && year !== "all") query.year = year;
-    if (course && course !== "all") query.course = course;
+    // ---------------- FILTERS (PARTIAL + CASE INSENSITIVE) ----------------
+    if (college && college !== "all") {
+      matchStage.college = { $regex: college.trim(), $options: "i" };
+    }
 
-    // ---------------- SEARCH (OR) ----------------
-    if (search && search.trim() !== "") {
+    if (year && year !== "all") {
+      matchStage.year = { $regex: year.trim(), $options: "i" };
+    }
+
+    if (course && course !== "all") {
+      matchStage.course = { $regex: course.trim(), $options: "i" };
+    }
+
+
+    // ---------------- SEARCH ----------------
+    if (search && search.trim()) {
       const orConditions = [
-        { name: { $regex: search, $options: "i" } } // name search
+        { name: { $regex: search, $options: "i" } }
       ];
 
-      // mobile search: remove non-digits and convert to number
       const mobileSearch = search.replace(/\D/g, "");
       if (mobileSearch) {
         orConditions.push({ mobile: Number(mobileSearch) });
       }
 
-      query.$or = orConditions;
+      matchStage.$or = orConditions;
     }
 
-    // ---------------- TOTAL COUNT ----------------
-    const total = await studentModel.countDocuments(query);
+    // ---------------- PIPELINE ----------------
+    const pipeline = [
+      { $match: matchStage },
+
+      { $sort: { createdAt: -1 } },
+
+      {
+        $group: {
+          _id: "$mobile",
+          student: { $first: "$$ROOT" }
+        }
+      },
+
+      { $replaceRoot: { newRoot: "$student" } },
+
+      { $sort: { createdAt: -1 } }
+    ];
+
+    // total count after dedupe
+    const totalData = await studentModel.aggregate(pipeline);
+    const total = totalData.length;
 
     if (!total) {
       return res.status(200).json({
@@ -270,12 +308,10 @@ export const getStudentByAssesmet = async (req, res) => {
       });
     }
 
-    // ---------------- DATA FETCH ----------------
-    const students = await studentModel
-      .find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
+    // pagination
+    pipeline.push({ $skip: skip }, { $limit: limit });
+
+    const students = await studentModel.aggregate(pipeline);
 
     return res.status(200).json({
       success: true,
@@ -298,6 +334,7 @@ export const getStudentByAssesmet = async (req, res) => {
     });
   }
 };
+
 
 
 

@@ -218,3 +218,76 @@ export const importQuestionsFromExcel = async (req, res) => {
   }
 };
 
+export const exportQuestionsToExcel = async (req, res) => {
+  try {
+    const { id } = req.params; // topicId
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Topic ID is required"
+      });
+    }
+
+    // check topic
+    const topic = await topicModel.findById(id);
+    if (!topic) {
+      return res.status(404).json({
+        success: false,
+        message: "Topic not found"
+      });
+    }
+
+    // get questions of topic
+    const questions = await questionModel.find({ topic: id }).lean();
+
+    if (!questions.length) {
+      return res.status(404).json({
+        success: false,
+        message: "No questions found for this topic"
+      });
+    }
+
+    // map to excel format (SAME AS IMPORT)
+    const excelData = questions.map(q => ({
+      question: q.question,
+      optionA: q.options.A,
+      optionB: q.options.B,
+      optionC: q.options.C,
+      optionD: q.options.D,
+      correctOption: q.correctOption
+    }));
+
+    // create workbook & sheet
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Questions");
+
+    // generate buffer
+    const buffer = XLSX.write(workbook, {
+      type: "buffer",
+      bookType: "xlsx"
+    });
+
+    // response headers
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=topic_${id}_questions.xlsx`
+    );
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+
+    return res.send(buffer);
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to export questions",
+      error: error.message
+    });
+  }
+};
+

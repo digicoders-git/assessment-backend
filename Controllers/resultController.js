@@ -87,7 +87,7 @@ export const createResult = async (req, res) => {
       unattempted,
       correct,
       incorrect,
-      marks,          
+      marks,
       duration,
       rank: isReattempt ? null : 0
     });
@@ -180,17 +180,28 @@ export const getResultsByAssessmentId = async (req, res) => {
     // ---------------- STUDENT MATCH ----------------
     let studentMatch = {};
 
+    // ---------------- STUDENT FILTERS (PARTIAL + CASE INSENSITIVE) ----------------
     if (college && college !== "all") {
-      studentMatch["student.college"] = college;
+      studentMatch["student.college"] = {
+        $regex: college.trim(),
+        $options: "i"
+      };
     }
 
     if (year && year !== "all") {
-      studentMatch["student.year"] = year;
+      studentMatch["student.year"] = {
+        $regex: year.trim(),
+        $options: "i"
+      };
     }
 
     if (course && course !== "all") {
-      studentMatch["student.course"] = course;
+      studentMatch["student.course"] = {
+        $regex: course.trim(),
+        $options: "i"
+      };
     }
+
 
     if (search && search.trim() !== "") {
       const orConditions = [
@@ -386,12 +397,12 @@ export const getResultsByStudent = async (req, res) => {
         populate: { path: "topic" }
       })
       .sort({ createdAt: -1 }).populate({
-    path: "assesmentQuestions",
-    populate: {
-      path: "assesmentId",
-      select: "assessmentName"
-    }
-  })
+        path: "assesmentQuestions",
+        populate: {
+          path: "assesmentId",
+          select: "assessmentName"
+        }
+      })
 
     const formattedResults = results.map(result => ({
       //  RESULT basic fields
