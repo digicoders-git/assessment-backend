@@ -103,7 +103,9 @@ export const createCertificate = async (req, res) => {
       certificateName,
       certificateImage: uploadResult.secure_url,
       studentName,
-      ...optionalData, // spread optional fields if valid
+      ...optionalData,
+      height:uploadResult.height,
+      width: uploadResult.width // spread optional fields if valid
     });
 
     return res.status(201).json({

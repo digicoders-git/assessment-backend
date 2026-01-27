@@ -43,12 +43,20 @@ const certificateSchema = new mongoose.Schema(
       type: textFieldSchema,
     },
     status: {
-      type : Boolean,
+      type: Boolean,
       default: true
     },
     date: {
       type: textFieldSchema,
-    }
+    },
+    height: {
+      type: String,
+      required: true
+    },
+    width: {
+      type: String,
+      required: true
+    },
   },
   { timestamps: true }
 );
