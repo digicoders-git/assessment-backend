@@ -12,6 +12,7 @@ export const createAssessment = async (req, res) => {
     const {
       assessmentName,
       assessmentCode,
+      certificateOnly,
       totalQuestions,
       timeDuration,
       startDateTime,
@@ -24,8 +25,8 @@ export const createAssessment = async (req, res) => {
     if (
       !assessmentName ||
       !assessmentCode ||
-      !totalQuestions ||
-      !timeDuration ||
+      // !totalQuestions ||
+      // !timeDuration ||
       !startDateTime ||
       !endDateTime
     ) {
@@ -59,6 +60,7 @@ export const createAssessment = async (req, res) => {
       assessmentId: counter.seq,
       assessmentName,
       assessmentCode,
+      certificateOnly,
       totalQuestions,
       timeDuration,
       startDateTime,

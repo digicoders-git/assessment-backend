@@ -17,13 +17,17 @@ const assessmentSchema = new mongoose.Schema({
     uppercase: true,
     trim: true
   },
+  certificateOnly:{
+    type: Boolean,
+    default:false
+  },
   totalQuestions: {
     type: Number,
-    required: true
+    required: false
   },
   timeDuration: {
     type: Number,
-    required: true
+    required: false
   },
   startDateTime: {
     type: Date,
