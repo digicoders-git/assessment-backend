@@ -158,6 +158,7 @@ export const createResult = async (req, res) => {
 // getallresult
 
 // get result by assesment
+
 export const getResultsByAssessmentId = async (req, res) => {
   try {
     const { id } = req.params;
@@ -183,9 +184,34 @@ export const getResultsByAssessmentId = async (req, res) => {
         }
       },
       { $unwind: "$assesmentQuestions" },
-      { $match: { "assesmentQuestions.assesmentId": new mongoose.Types.ObjectId(id) } },
-      { $lookup: { from: "students", localField: "student", foreignField: "_id", as: "student" } },
+
+      {
+        $match: {
+          "assesmentQuestions.assesmentId": new mongoose.Types.ObjectId(id)
+        }
+      },
+
+      // 🔥 IMPORTANT FIX: populate assesmentId → assessment
+      {
+        $lookup: {
+          from: "assessments",
+          localField: "assesmentQuestions.assesmentId",
+          foreignField: "_id",
+          as: "assessment"
+        }
+      },
+      { $unwind: "$assessment" },
+
+      {
+        $lookup: {
+          from: "students",
+          localField: "student",
+          foreignField: "_id",
+          as: "student"
+        }
+      },
       { $unwind: "$student" },
+
       {
         $group: {
           _id: "$student.mobile",
@@ -196,7 +222,11 @@ export const getResultsByAssessmentId = async (req, res) => {
         $project: {
           firstSubmission: { $arrayElemAt: ["$results", 0] },
           reattempt: {
-            $cond: [{ $gt: [{ $size: "$results" }, 1] }, { $slice: ["$results", 1, { $size: "$results" }] }, []]
+            $cond: [
+              { $gt: [{ $size: "$results" }, 1] },
+              { $slice: ["$results", 1, { $size: "$results" }] },
+              []
+            ]
           }
         }
       }
@@ -205,21 +235,29 @@ export const getResultsByAssessmentId = async (req, res) => {
     // ---------------- FLATTEN ----------------
     const firstSubmission = [];
     const reattempt = [];
+
     allData.forEach(item => {
       if (item.firstSubmission) firstSubmission.push(item.firstSubmission);
       if (item.reattempt?.length > 0) reattempt.push(...item.reattempt);
     });
 
+    // ---------------- GET ASSESSMENT NAME (ONE TIME) ----------------
+    const assessmentName =
+      firstSubmission?.[0]?.assessment?.assessmentName || null;
+
+    const certificateName =
+      firstSubmission?.[0]?.assessment?.certificateName || null;
+
     // ---------------- HELPER: Convert duration string to seconds ----------------
     const durationToSeconds = (duration) => {
       if (!duration) return 0;
       const parts = duration.split(':').map(Number);
-      if (parts.length === 2) return parts[0] * 60 + parts[1]; // MM:SS
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]; // HH:MM:SS
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
       return Number(duration) || 0;
     };
 
-    // ---------------- RANK CALCULATION (OVERALL, WITHOUT FILTER) ----------------
+    // ---------------- RANK CALCULATION ----------------
     firstSubmission.sort((a, b) => {
       if (b.marks !== a.marks) return b.marks - a.marks;
       return durationToSeconds(a.duration) - durationToSeconds(b.duration);
@@ -229,7 +267,10 @@ export const getResultsByAssessmentId = async (req, res) => {
     firstSubmission.forEach((item, index) => {
       if (index > 0) {
         const prev = firstSubmission[index - 1];
-        if (item.marks === prev.marks && durationToSeconds(item.duration) === durationToSeconds(prev.duration)) {
+        if (
+          item.marks === prev.marks &&
+          durationToSeconds(item.duration) === durationToSeconds(prev.duration)
+        ) {
           item.rank = prev.rank;
         } else {
           item.rank = currentRank;
@@ -240,17 +281,27 @@ export const getResultsByAssessmentId = async (req, res) => {
       currentRank++;
     });
 
-    // ---------------- APPLY FILTER / SEARCH ON FLATTENED DATA ----------------
+    // ---------------- APPLY FILTER / SEARCH ----------------
     let filteredFirst = firstSubmission;
     let filteredReattempt = reattempt;
 
-    if ((college && college !== "all") || (year && year !== "all") || (course && course !== "all") || (search && search.trim() !== "")) {
+    if (
+      (college && college !== "all") ||
+      (year && year !== "all") ||
+      (course && course !== "all") ||
+      (search && search.trim() !== "")
+    ) {
       filteredFirst = firstSubmission.filter(item => {
         let match = true;
 
-        if (college && college !== "all") match = match && item.student.college?.toLowerCase().includes(college.toLowerCase());
-        if (year && year !== "all") match = match && item.student.year?.toLowerCase().includes(year.toLowerCase());
-        if (course && course !== "all") match = match && item.student.course?.toLowerCase().includes(course.toLowerCase());
+        if (college && college !== "all")
+          match = match && item.student.college?.toLowerCase().includes(college.toLowerCase());
+
+        if (year && year !== "all")
+          match = match && item.student.year?.toLowerCase().includes(year.toLowerCase());
+
+        if (course && course !== "all")
+          match = match && item.student.course?.toLowerCase().includes(course.toLowerCase());
 
         if (search && search.trim() !== "") {
           const s = search.trim().toLowerCase();
@@ -262,17 +313,29 @@ export const getResultsByAssessmentId = async (req, res) => {
         return match;
       });
 
-      filteredReattempt = reattempt.filter(item => filteredFirst.some(f => f.student.mobile === item.student.mobile));
+      filteredReattempt = reattempt.filter(item =>
+        filteredFirst.some(f => f.student.mobile === item.student.mobile)
+      );
     }
 
     // ---------------- CLEAN RESPONSE ----------------
     const clean = doc => {
-      const { assesmentQuestions, answers, questions, topics, ...rest } = doc;
+      const {
+        assesmentQuestions,
+        assessment,
+        answers,
+        questions,
+        topics,
+        ...rest
+      } = doc;
       return rest;
     };
 
+    // ---------------- FINAL RESPONSE ----------------
     return res.status(200).json({
       success: true,
+      assessmentName,
+      certificateName,
       firstSubmission: filteredFirst.map(clean),
       reattempt: filteredReattempt.map(clean),
       pagination: {
@@ -288,11 +351,6 @@ export const getResultsByAssessmentId = async (req, res) => {
     });
   }
 };
-
-
-
-
-
 
 
 // get by number;

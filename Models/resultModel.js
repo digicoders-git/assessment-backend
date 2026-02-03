@@ -13,6 +13,11 @@ const studenResultSchema = new mongoose.Schema({
         ref: 'assesmentQuestion',
         required: true
     },
+    assessmentCode: {
+        type: String,
+        index: true
+    }
+    ,
     answers: [
         {
             question: { type: mongoose.Schema.Types.ObjectId, ref: 'Question' },

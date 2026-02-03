@@ -144,100 +144,66 @@ export const getAllAssessments = async (req, res) => {
 };
 
 
-
 export const getAssesmentByStatus = async (req, res) => {
   try {
-    const { status } = req.params;
+    const status = req.params.status === "true";
 
-    if (!status) {
-      return res.status(400).json({
-        success: false,
-        message: "Status is required",
-      });
-    }
+    // Server-side pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const totalCount = await assessmentModel.countDocuments({ status });
 
     const assessments = await assessmentModel
       .find({ status })
-      .populate("certificateName");
+      .populate("certificateName")
+      .sort({ createdAt: -1 }) // latest first
+      .skip(skip)
+      .limit(limit)
+      .lean();
 
-    const formattedAssessments = await Promise.all(
-      assessments.map(async (assessment) => {
-        const obj = assessment.toObject();
-
-        const assessmentQuestions = await assesmentQuestionIdModel.findOne({
-          assesmentId: obj._id,
+    const formatted = await Promise.all(
+      assessments.map(async (obj) => {
+        const questionCount = await assesmentQuestionIdModel.countDocuments({
+          assesmentId: obj._id
         });
-
-        const questionCount = assessmentQuestions
-          ? assessmentQuestions.questionIds.length
-          : 0;
-
 
         const startCount = await studentModel.countDocuments({
-          code: obj.assessmentCode,
+          code: obj.assessmentCode
         });
 
-
-        const submittedStudents = await resultModel
-          .find()
-          .populate({
-            path: "student",
-            match: { code: obj.assessmentCode },
-            select: "_id",
-          });
-
-        // unique student ids
-        const uniqueStudentIds = new Set(
-          submittedStudents
-            .filter((r) => r.student) // only matching code
-            .map((r) => r.student._id.toString())
-        );
-
-        const submitCount = uniqueStudentIds.size;
-
-        const updatePayload = {};
-
-        if (obj.count !== questionCount) updatePayload.count = questionCount;
-        if (obj.start !== startCount) updatePayload.start = startCount;
-        if (obj.submit !== submitCount) updatePayload.submit = submitCount;
-
-        if (Object.keys(updatePayload).length) {
-          await assessmentModel.findByIdAndUpdate(obj._id, updatePayload);
-        }
-
+        const submitCount = await resultModel.countDocuments({
+          assessmentCode: obj.assessmentCode
+        });
 
         return {
           ...obj,
           count: questionCount,
           start: startCount,
           submit: submitCount,
-
-          //  convert only if exists
           startDateTime: obj.startDateTime
             ? toKolkataTime(obj.startDateTime)
             : null,
-
           endDateTime: obj.endDateTime
             ? toKolkataTime(obj.endDateTime)
             : null,
         };
-
       })
     );
 
-    return res.status(200).json({
+    res.json({
       success: true,
-      assessments: formattedAssessments,
+      assessments: formatted,
+      totalCount,
+      totalPages: Math.ceil(totalCount / limit),
+      currentPage: page
     });
-  } catch (error) {
-    console.error("GET ASSESSMENT ERROR:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
-
 
 
 
