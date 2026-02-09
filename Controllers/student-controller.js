@@ -5,7 +5,6 @@ import courseModel from "../Models/courseModel.js";
 import studentModel from "../Models/studentModel.js";
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
-import { uploadBufferToCloudinary } from "../utils/uploadCloudinary.js";
 
 
 export const studen_reg = async (req, res) => {
@@ -60,13 +59,16 @@ export const studen_reg = async (req, res) => {
 };
 
 
+
 export const updateStuednt = async (req, res) => {
   try {
     const { id } = req.params;
 
-    //  CASE 1 → only certificate upload
+    // 🟢 CASE 1 → certificate image update (LOCAL)
     if (req.file) {
-      const certificateUrl = await uploadBufferToCloudinary(req.file.buffer);
+
+      // 🌐 local image URL (same logic as certificate)
+      const certificateUrl = `${req.protocol}://${req.get("host")}/uploads/certificates/${req.file.filename}`;
 
       const student = await studentModel.findByIdAndUpdate(
         id,
@@ -81,7 +83,7 @@ export const updateStuednt = async (req, res) => {
       });
     }
 
-    //  CASE 2 → only student data update
+    // 🟢 CASE 2 → only student data update
     if (Object.keys(req.body).length > 0) {
       const updatedStudent = await studentModel.findByIdAndUpdate(
         id,
@@ -96,20 +98,20 @@ export const updateStuednt = async (req, res) => {
       });
     }
 
-    //  nothing sent
     return res.status(400).json({
       success: false,
       message: "No data or certificate provided"
     });
 
   } catch (error) {
+    console.error("UPDATE STUDENT ERROR:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
-      error: error.message
+      message: "Internal server error"
     });
   }
 };
+
 
 
 export const existStudent = async (req, res) => {

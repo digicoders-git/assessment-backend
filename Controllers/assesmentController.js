@@ -165,9 +165,17 @@ export const getAssesmentByStatus = async (req, res) => {
 
     const formatted = await Promise.all(
       assessments.map(async (obj) => {
-        const questionCount = await assesmentQuestionIdModel.countDocuments({
-          assesmentId: obj._id
-        });
+
+        const quesDoc = await assesmentQuestionIdModel.findOne(
+          { assesmentId: obj._id },
+          { questionIds: 1 }
+        );
+
+        const questionCount = quesDoc?.questionIds?.length || 0;
+
+        // const questionCount = await assesmentQuestionIdModel.countDocuments({
+        //   assesmentId: obj._id
+        // });
 
         const startCount = await studentModel.countDocuments({
           code: obj.assessmentCode

@@ -80,6 +80,7 @@ export const createResult = async (req, res) => {
     // create result
     const newResult = await resultModel.create({
       student,
+      assessmentCode:studentData.code,
       assesmentQuestions,
       answers,
       total,

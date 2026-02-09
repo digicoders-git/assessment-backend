@@ -1,7 +1,6 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import amdidnModel from "../Models/adminModel.js";
-import cloudinary from "../Config/cloudinary.js";
 import studentModel from "../Models/studentModel.js";
 import certificateModel from "../Models/certificateModel.js";
 import assessmentModel from "../Models/assesmentModel.js";
@@ -84,17 +83,26 @@ export const getAdmin = async (req, res) => {
 
 // update admin
 
+import fs from "fs";
+import path from "path";
+
 export const updateAdmin = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!id) {
-      return res.status(400).json({ success: false, message: "Admin ID required" });
+      return res.status(400).json({
+        success: false,
+        message: "Admin ID required"
+      });
     }
 
     const admin = await amdidnModel.findById(id);
     if (!admin) {
-      return res.status(404).json({ success: false, message: "Admin not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found"
+      });
     }
 
     const {
@@ -104,6 +112,7 @@ export const updateAdmin = async (req, res) => {
       confirmPassword
     } = req.body;
 
+    /* 🔐 PASSWORD UPDATE */
     const isPasswordUpdate =
       currentPassword || newPassword || confirmPassword;
 
@@ -130,30 +139,31 @@ export const updateAdmin = async (req, res) => {
         });
       }
 
-      const hashedPassword = await bcrypt.hash(newPassword, 10);
-      admin.password = hashedPassword;
+      admin.password = await bcrypt.hash(newPassword, 10);
     }
 
+    /* ✏️ USERNAME UPDATE */
     if (userName) {
       admin.userName = userName;
     }
 
+    /* 🖼️ IMAGE UPDATE (LOCAL) */
     if (req.file) {
-      if (admin.image) {
-        const publicId = admin.image
-          .split("/")
-          .slice(-2)
-          .join("/")
-          .replace(/\.[^/.]+$/, "");
-        await cloudinary.uploader.destroy(publicId);
+      // 🔥 purani local image delete
+      if (admin.image && admin.image.includes("/uploads/")) {
+        const oldPath = path.join(
+          process.cwd(),
+          admin.image.replace(/^.*\/uploads/, "uploads")
+        );
+
+        if (fs.existsSync(oldPath)) {
+          fs.unlinkSync(oldPath);
+        }
       }
 
-      const uploadResult = await cloudinary.uploader.upload(
-        `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
-        { folder: "admin" }
-      );
-
-      admin.image = uploadResult.secure_url;
+      // 🌐 new local image URL
+      const imageUrl = `${req.protocol}://${req.get("host")}/uploads/certificates/${req.file.filename}`;
+      admin.image = imageUrl;
     }
 
     await admin.save();
@@ -161,6 +171,7 @@ export const updateAdmin = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Admin updated successfully",
+      admin
     });
 
   } catch (error) {
@@ -171,6 +182,7 @@ export const updateAdmin = async (req, res) => {
     });
   }
 };
+
 
 
 // dashboard data counts 

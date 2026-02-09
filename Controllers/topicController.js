@@ -24,6 +24,13 @@ export const createTopic = async (req, res) => {
 
 export const getAllTopics = async (req, res) => {
   try {
+    const { status } = req.query; // true / false (optional)
+
+    // 🟢 build filter only if param exists
+    const filter = {};
+    if (status === "true") filter.status = true;
+    if (status === "false") filter.status = false;
+
     const questionCounts = await questionModel.aggregate([
       {
         $group: {
@@ -38,7 +45,8 @@ export const getAllTopics = async (req, res) => {
       countMap[item._id.toString()] = item.count;
     });
 
-    const topics = await topicModel.find().lean();
+    // 🟢 filter applied only when param present
+    const topics = await topicModel.find(filter).lean();
 
     const updatedTopics = topics.map(topic => ({
       ...topic,
@@ -69,6 +77,7 @@ export const getAllTopics = async (req, res) => {
     });
   }
 };
+
 
 
 export const toggleTopicStatus = async (req, res) => {

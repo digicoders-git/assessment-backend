@@ -1,6 +1,19 @@
 import multer from "multer";
+import path from "path";
 
 const storage = multer.memoryStorage();
+
+const storageLocal = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "uploads/certificates"); // folder
+  },
+  filename: function (req, file, cb) {
+    const uniqueName =
+      Date.now() + "-" + Math.round(Math.random() * 1e9) +
+      path.extname(file.originalname);
+    cb(null, uniqueName);
+  }
+});
 
 /* EXCEL FILE FILTER */
 const excelFileFilter = (req, file, cb) => {
@@ -39,7 +52,7 @@ export const uploadExcel = multer({
 
 /* CERTIFICATE IMAGE UPLOAD */
 export const uploadCertificateImage = multer({
-  storage,
+  storage: storageLocal,
   fileFilter: imageFileFilter,
   limits: {
     fileSize: 20 * 1024 * 1024

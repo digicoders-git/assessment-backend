@@ -8,6 +8,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import dbConnect from "./Config/db.js";
+import path from "path";
 
 
 // Routes
@@ -26,19 +27,19 @@ import resultRouter from "./Routes/resultRoute.js";
 
 
 const app = express();
-// origins
-const orgins = ["https://assessment.thedigicoders.com/","http://localhost:5173","https://assesment-portal-digicoders.vercel.app","http://localhost:5174","https://erp.thedigicoders.com","https://student.thedigicoders.com"]
 
 app.use(express.json());
+
+
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(cors({
-  origin: orgins,
+  origin: ["https://assessment.thedigicoders.com/","http://localhost:5173","https://assesment-portal-digicoders.vercel.app","http://localhost:5174","https://erp.thedigicoders.com","https://student.thedigicoders.com"],
   credentials: true
 }));app.use(express.urlencoded({ extended: true }));
 
-// Database connection
-dbConnect();
+
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // Routes
 app.use('/registration', studentRoute);
@@ -64,5 +65,8 @@ app.use((req, res) => {
 
 const port = process.env.PORT || 5000;
 app.listen(port, () => {
+  // Database connection
+dbConnect();
+
   console.log(`Server is running on port http://localhost:${port}`);
 });

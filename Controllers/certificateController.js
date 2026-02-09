@@ -1,6 +1,10 @@
 import qs from "qs";
 import certificateModel from "../Models/certificateModel.js";
+import sizeOf from "image-size";
+import fs from "fs";
 import cloudinary from "../Config/cloudinary.js";
+import path from "path";
+
 
 
 /* ===== HELPER FUNCTIONS ===== */
@@ -51,6 +55,7 @@ export const createCertificate = async (req, res) => {
   try {
     const { certificateName } = req.body;
 
+    // 1️⃣ basic validation
     if (!certificateName) {
       return res.status(400).json({
         success: false,
@@ -58,7 +63,7 @@ export const createCertificate = async (req, res) => {
       });
     }
 
-    // Check unique
+    // 2️⃣ unique check
     const exists = await certificateModel.findOne({ certificateName });
     if (exists) {
       return res.status(400).json({
@@ -67,6 +72,7 @@ export const createCertificate = async (req, res) => {
       });
     }
 
+    // 3️⃣ image required
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -74,7 +80,7 @@ export const createCertificate = async (req, res) => {
       });
     }
 
-    // REQUIRED: studentName
+    // 4️⃣ REQUIRED field
     const studentName = buildTextConfig(req.body, "studentName");
     if (!isValidTextConfig(studentName)) {
       return res.status(400).json({
@@ -83,36 +89,49 @@ export const createCertificate = async (req, res) => {
       });
     }
 
-    // OPTIONAL FIELDS: include only if present & valid
-    const optionalFields = ["assessmentName", "assessmentCode", "collegeName", "date"];
+    // 5️⃣ OPTIONAL fields
+    const optionalFields = [
+      "assessmentName",
+      "assessmentCode",
+      "collegeName",
+      "date",
+    ];
+
     const optionalData = {};
     optionalFields.forEach((key) => {
       const cfg = buildTextConfig(req.body, key);
       if (cfg && isValidTextConfig(cfg)) {
-        optionalData[key] = cfg; // save full config object if valid
+        optionalData[key] = cfg;
       }
     });
 
-    // Upload certificate image to Cloudinary
-    const uploadResult = await cloudinary.uploader.upload(
-      `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
-      { folder: "certificates" }
-    );
+    // 6️⃣ ORIGINAL IMAGE SIZE (LOCAL FILE)
+    const imageBuffer = fs.readFileSync(req.file.path);
+    const { width, height } = sizeOf(imageBuffer);
 
+
+    // 7️⃣ LOCAL IMAGE URL
+    const certificateImageUrl = `${req.protocol}://${req.get(
+      "host"
+    )}/uploads/certificates/${req.file.filename}`;
+
+    // 8️⃣ SAVE TO DB
     const certificate = await certificateModel.create({
       certificateName,
-      certificateImage: uploadResult.secure_url,
+      certificateImage: certificateImageUrl,
       studentName,
       ...optionalData,
-      height:uploadResult.height,
-      width: uploadResult.width // spread optional fields if valid
+      width,
+      height,
     });
+
 
     return res.status(201).json({
       success: true,
       message: "Certificate created successfully",
       certificate,
     });
+
   } catch (error) {
     console.error("CREATE CERTIFICATE ERROR:", error);
     return res.status(500).json({
@@ -123,13 +142,16 @@ export const createCertificate = async (req, res) => {
 };
 
 
+
+
+
 // GET all certificates
 export const getAllCertificates = async (req, res) => {
   try {
     const certificates = await certificateModel.find();
-    res.status(200).json({success:true,message:"certificates found",certificates});
+    res.status(200).json({ success: true, message: "certificates found", certificates });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Internal server error",error:error.message });
+    res.status(500).json({ success: false, message: "Internal server error", error: error.message });
   }
 };
 
@@ -137,12 +159,12 @@ export const getAllCertificates = async (req, res) => {
 export const getSingleCertificate = async (req, res) => {
   try {
     const { id } = req.params;
-    if(!id) return res.status(400).json({ success: false, message: "Certificate ID is required" });
+    if (!id) return res.status(400).json({ success: false, message: "Certificate ID is required" });
     const certificate = await certificateModel.findById(id);
     if (!certificate) return res.status(404).json({ success: false, message: "Certificate not found" });
     res.status(200).json(certificate);
   } catch (error) {
-    res.status(500).json({ success: false, message: "Internal server error",error:error.message });
+    res.status(500).json({ success: false, message: "Internal server error", error: error.message });
   }
 };
 
@@ -175,32 +197,36 @@ export const updateCertificate = async (req, res) => {
       updateData.certificateName = req.body.certificateName;
     }
 
-    // ===== STUDENT NAME (optional update, never unset) =====
+    // ===== STUDENT NAME (never unset) =====
     const studentName = buildTextConfig(req.body, "studentName");
     if (studentName && isValidTextConfig(studentName)) {
       updateData.studentName = studentName;
     }
 
-    // ===== OPTIONAL FIELDS (unset if missing) =====
-    const optionalFields = ["assessmentName", "assessmentCode", "collegeName", "date"];
+    // ===== OPTIONAL FIELDS =====
+    const optionalFields = [
+      "assessmentName",
+      "assessmentCode",
+      "collegeName",
+      "date"
+    ];
 
     optionalFields.forEach((key) => {
       const cfg = buildTextConfig(req.body, key);
 
       if (cfg && isValidTextConfig(cfg)) {
-        updateData[key] = cfg;       // update/add
+        updateData[key] = cfg;
       } else {
-        unsetData[key] = "";         // remove from DB
+        unsetData[key] = "";
       }
     });
 
-    // ===== CERTIFICATE IMAGE (optional) =====
+    // ===== CERTIFICATE IMAGE (LOCAL) =====
     if (req.file) {
-      const uploadResult = await cloudinary.uploader.upload(
-        `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
-        { folder: "certificates" }
-      );
-      updateData.certificateImage = uploadResult.secure_url;
+      const certificateUrl =
+        `${req.protocol}://${req.get("host")}/uploads/certificates/${req.file.filename}`;
+
+      updateData.certificateImage = certificateUrl;
     }
 
     const updatedCertificate = await certificateModel.findByIdAndUpdate(
@@ -229,47 +255,70 @@ export const updateCertificate = async (req, res) => {
 
 
 
+
 // DELETE certificate by ID
+
 
 export const deleteCertificate = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if(!id) return res.status(400).json({success:false, message:"Certificate ID is required"} )
-
     const certificate = await certificateModel.findById(id);
     if (!certificate) {
-      return res.status(404).json({ success: false, message: "Certificate not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Certificate not found",
+      });
     }
 
-    //  Extract public_id from Cloudinary URL
-    if (certificate.certificateImage) {
-      const imageUrl = certificate.certificateImage;
+    const imageUrl = certificate.certificateImage;
 
-      const publicId = imageUrl
-        .split("/")
-        .slice(-2)
-        .join("/")
-        .replace(/\.[^/.]+$/, ""); // remove extension
+    // 🔹 CASE 1: CLOUDINARY IMAGE
+    if (imageUrl && imageUrl.includes("cloudinary")) {
+      // extract public_id
+      const parts = imageUrl.split("/");
+      const fileName = parts[parts.length - 1]; // abc123.png
+      const publicId = `certificates/${fileName.split(".")[0]}`;
 
       await cloudinary.uploader.destroy(publicId);
     }
 
+    // 🔹 CASE 2: LOCAL IMAGE
+    else if (imageUrl) {
+      // imageUrl example:
+      // http://localhost:5000/uploads/certificates/abc.png
+
+      const filePath = imageUrl.split("/uploads/")[1]; 
+      if (filePath) {
+        const fullPath = path.join(
+          process.cwd(),
+          "uploads",
+          filePath
+        );
+
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+        }
+      }
+    }
+
+    // 🔹 DELETE DB DOCUMENT
     await certificateModel.findByIdAndDelete(id);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Certificate deleted successfully"
+      message: "Certificate and image deleted successfully",
     });
 
   } catch (error) {
-    res.status(500).json({
+    console.error("DELETE CERTIFICATE ERROR:", error);
+    return res.status(500).json({
       success: false,
-      message: "Internal server error",
-      error: error.message
+      message: "Failed to delete certificate",
     });
   }
 };
+;
 
 // Toggle certificate stauts
 
