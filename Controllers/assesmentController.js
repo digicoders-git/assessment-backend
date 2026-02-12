@@ -148,24 +148,55 @@ export const getAssesmentByStatus = async (req, res) => {
   try {
     const status = req.params.status === "true";
 
-    // Server-side pagination
+    // pagination
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const totalCount = await assessmentModel.countDocuments({ status });
+    // search inputs
+    const search = req.query.search?.trim(); // name / code / remark
+    const date = req.query.date?.trim();     // DD/MM/YYYY
+
+    // ===== base filter (STATUS NEVER MIX) =====
+    let filter = { status };
+
+    // ===== text search =====
+    if (search) {
+      filter.$or = [
+        { assessmentName: { $regex: search, $options: "i" } },
+        { assessmentCode: { $regex: search, $options: "i" } },
+        { remark: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    // ===== date search (startDateTime) =====
+    if (date) {
+      const [day, month, year] = date.split("/");
+
+      if (day && month && year) {
+        const startOfDay = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+        const endOfDay = new Date(`${year}-${month}-${day}T23:59:59.999Z`);
+
+        filter.startDateTime = {
+          $gte: startOfDay,
+          $lte: endOfDay,
+        };
+      }
+    }
+
+    // ===== total count (PURE FILTERED DATA) =====
+    const totalCount = await assessmentModel.countDocuments(filter);
 
     const assessments = await assessmentModel
-      .find({ status })
+      .find(filter)
       .populate("certificateName")
-      .sort({ createdAt: -1 }) // latest first
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
     const formatted = await Promise.all(
       assessments.map(async (obj) => {
-
         const quesDoc = await assesmentQuestionIdModel.findOne(
           { assesmentId: obj._id },
           { questionIds: 1 }
@@ -173,16 +204,12 @@ export const getAssesmentByStatus = async (req, res) => {
 
         const questionCount = quesDoc?.questionIds?.length || 0;
 
-        // const questionCount = await assesmentQuestionIdModel.countDocuments({
-        //   assesmentId: obj._id
-        // });
-
         const startCount = await studentModel.countDocuments({
-          code: obj.assessmentCode
+          code: obj.assessmentCode,
         });
 
         const submitCount = await resultModel.countDocuments({
-          assessmentCode: obj.assessmentCode
+          assessmentCode: obj.assessmentCode,
         });
 
         return {
@@ -205,13 +232,14 @@ export const getAssesmentByStatus = async (req, res) => {
       assessments: formatted,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
-      currentPage: page
+      currentPage: page,
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
 
 
 

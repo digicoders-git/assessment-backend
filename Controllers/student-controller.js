@@ -68,7 +68,7 @@ export const updateStuednt = async (req, res) => {
     if (req.file) {
 
       // 🌐 local image URL (same logic as certificate)
-      const certificateUrl = `${req.protocol}://${req.get("host")}/uploads/certificates/${req.file.filename}`;
+      const certificateUrl = `${process.env.CERT_BASE_URL}/uploads/certificates/${req.file.filename}`;
 
       const student = await studentModel.findByIdAndUpdate(
         id,

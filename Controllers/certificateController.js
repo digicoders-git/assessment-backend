@@ -111,9 +111,7 @@ export const createCertificate = async (req, res) => {
 
 
     // 7️⃣ LOCAL IMAGE URL
-    const certificateImageUrl = `${req.protocol}://${req.get(
-      "host"
-    )}/uploads/certificates/${req.file.filename}`;
+    const certificateImageUrl = `${process.env.CERT_BASE_URL}/uploads/certificates/${req.file.filename}`;
 
     // 8️⃣ SAVE TO DB
     const certificate = await certificateModel.create({
@@ -224,7 +222,7 @@ export const updateCertificate = async (req, res) => {
     // ===== CERTIFICATE IMAGE (LOCAL) =====
     if (req.file) {
       const certificateUrl =
-        `${req.protocol}://${req.get("host")}/uploads/certificates/${req.file.filename}`;
+        `${process.env.CERT_BASE_URL}/uploads/certificates/${req.file.filename}`;
 
       updateData.certificateImage = certificateUrl;
     }
