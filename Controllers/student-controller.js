@@ -239,14 +239,12 @@ export const getStudentByAssesmet = async (req, res) => {
 
     const { search, college, year, course } = req.query;
 
-    // ---------------- MATCH STAGE ----------------
     const matchStage = {};
 
     if (assesmentCode && assesmentCode !== "all") {
       matchStage.code = assesmentCode;
     }
 
-    // ---------------- FILTERS (PARTIAL + CASE INSENSITIVE) ----------------
     if (college && college !== "all") {
       matchStage.college = { $regex: college.trim(), $options: "i" };
     }
@@ -259,26 +257,18 @@ export const getStudentByAssesmet = async (req, res) => {
       matchStage.course = { $regex: course.trim(), $options: "i" };
     }
 
-
-    // ---------------- SEARCH ----------------
     if (search && search.trim()) {
-      const orConditions = [
-        { name: { $regex: search, $options: "i" } }
-      ];
-
+      const orConditions = [{ name: { $regex: search, $options: "i" } }];
       const mobileSearch = search.replace(/\D/g, "");
-      if (mobileSearch) {
-        orConditions.push({ mobile: Number(mobileSearch) });
-      }
-
+      if (mobileSearch) orConditions.push({ mobile: Number(mobileSearch) });
       matchStage.$or = orConditions;
     }
 
-    // ---------------- PIPELINE ----------------
     const pipeline = [
       { $match: matchStage },
 
-      { $sort: { createdAt: -1 } },
+      // ✅ FIRST student per mobile (oldest)
+      { $sort: { createdAt: 1 } },
 
       {
         $group: {
@@ -289,35 +279,49 @@ export const getStudentByAssesmet = async (req, res) => {
 
       { $replaceRoot: { newRoot: "$student" } },
 
+      // 🔹 RESULT LOOKUP (marks / total)
+      {
+        $lookup: {
+          from: "results",
+          localField: "_id",
+          foreignField: "student",
+          as: "result"
+        }
+      },
+
+      {
+        $addFields: {
+          marks: {
+            $cond: [
+              { $gt: [{ $size: "$result" }, 0] },
+              { $toDouble: { $arrayElemAt: ["$result.marks", 0] } },
+              null
+            ]
+          },
+          total: {
+            $cond: [
+              { $gt: [{ $size: "$result" }, 0] },
+              { $toDouble: { $arrayElemAt: ["$result.total", 0] } },
+              null
+            ]
+          }
+        }
+      },
+
+      { $project: { result: 0 } },
+
       { $sort: { createdAt: -1 } }
     ];
 
-    // total count after dedupe
     const totalData = await studentModel.aggregate(pipeline);
     const total = totalData.length;
 
-    if (!total) {
-      return res.status(200).json({
-        success: true,
-        message: "No Student found",
-        students: [],
-        pagination: {
-          page,
-          limit,
-          total: 0,
-          totalPages: 0
-        }
-      });
-    }
-
-    // pagination
     pipeline.push({ $skip: skip }, { $limit: limit });
 
     const students = await studentModel.aggregate(pipeline);
 
     return res.status(200).json({
       success: true,
-      message: "Student(s) found",
       students,
       pagination: {
         page,
@@ -331,8 +335,7 @@ export const getStudentByAssesmet = async (req, res) => {
     console.error("GET STUDENT ERROR:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
-      error: error.message
+      message: "Internal server error"
     });
   }
 };
