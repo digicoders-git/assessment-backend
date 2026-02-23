@@ -23,6 +23,7 @@ import academicYearRoute from "./Routes/academicYearRoute.js";
 import courseRouter from "./Routes/courseRoute.js";
 import certificateRouter from "./Routes/certificateRoute.js";
 import resultRouter from "./Routes/resultRoute.js";
+import lastYearData from "./Routes/lastYearData.js";
 
 
 
@@ -53,6 +54,7 @@ app.use('/admin', academicYearRoute);
 app.use('/admin', courseRouter);
 app.use('/admin', certificateRouter);
 app.use('/admin', resultRouter);
+app.use('/admin', lastYearData);
 
 // route not found 
 app.use((req, res) => {
