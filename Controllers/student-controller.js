@@ -9,10 +9,10 @@ import PDFDocument from "pdfkit";
 
 export const studen_reg = async (req, res) => {
   try {
-    const { name, mobile, email, college, year, course, code } = req.body;
+    const { name, /* mobile, email, */ college, year, course, code } = req.body;
 
     // 🔹 basic validation
-    if (!name || !mobile || !email || !college || !year || !course || !code) {
+    if (!name || /* !mobile || !email || */ !college || !year || !course || !code) {
       return res.status(400).json({
         success: false,
         message: "All fields are required"

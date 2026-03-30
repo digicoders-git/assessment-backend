@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const Schema =  new mongoose.Schema({
     mobile:{
         type: Number,
-        required: true
+        required: false
     },
     name: {
         type: String,
@@ -11,7 +11,7 @@ const Schema =  new mongoose.Schema({
     },
     email: {
         type: String,
-        required: true
+        required: false
     },
     college: {
         type: String,
