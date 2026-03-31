@@ -7,6 +7,53 @@ import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 
 
+export const studen_reg_without_contact = async (req, res) => {
+  try {
+    const { name, college, year, course, code } = req.body;
+
+    if (!name || !college || !year || !course || !code) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required"
+      });
+    }
+
+    const assessment = await assessmentModel.findOne({
+      assessmentCode: code.toUpperCase()
+    });
+
+    if (!assessment) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid assessment code"
+      });
+    }
+
+    if (!assessment.status) {
+      return res.status(400).json({
+        success: false,
+        message: "Assessment is inactive"
+      });
+    }
+
+    const newStudent = await studentModel.create({ name, college, year, course, code });
+
+    return res.status(201).json({
+      success: true,
+      message: "Registration successfully",
+      newStudent
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
+  }
+};
+
+
 export const studen_reg = async (req, res) => {
   try {
     const { name, mobile, email, college, year, course, code } = req.body;
