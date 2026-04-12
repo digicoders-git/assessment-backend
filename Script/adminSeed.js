@@ -8,9 +8,9 @@ dotenv.config();
 const createAdmin = async () => {
   await mongoose.connect(process.env.MONGO_URI);
 
-  const adminExists = await amdidnModel.findOne();
+  const adminExists = await amdidnModel.findOne({ role: 'admin' });
   if (adminExists) {
-    console.log("Admin already exists");
+    console.log("Admin already exists:", adminExists.userName);
     process.exit(0);
   }
 
@@ -18,10 +18,11 @@ const createAdmin = async () => {
 
   await amdidnModel.create({
     userName: "Admin",
-    password: hashedPassword
+    password: hashedPassword,
+    role: 'admin'
   });
 
-  console.log("Admin created successfully");
+  console.log("Admin created successfully | userName: Admin | password: Admin@123");
   process.exit(0);
 };
 

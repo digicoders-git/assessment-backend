@@ -5,6 +5,25 @@ const adminSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    email: {
+        type: String,
+        required: false,
+        default: null
+    },
+    userId: {
+        type: String,
+        required: false,
+        default: null
+    },
+    isActive: {
+        type: Boolean,
+        default: true
+    },
+    role: {
+        type: String,
+        enum: ['admin', 'user'],
+        default: 'user'
+    },
     password: {
         type: String,
         required: true
