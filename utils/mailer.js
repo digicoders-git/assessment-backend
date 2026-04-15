@@ -59,7 +59,7 @@ export const sendDownloadOtpEmail = async (toEmail, otp, userName) => {
     await transporter.sendMail({
       from: `"DigiCoders Assessment Portal" <${process.env.SMTP_USER}>`,
       to: toEmail,
-      subject: '🔐 Download Verification OTP - DigiCoders Assessment Portal',
+      subject: `🔐 Your OTP is ${otp} - DigiCoders Assessment Portal`,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
           <div style="background:#2563eb;padding:24px;text-align:center;">
