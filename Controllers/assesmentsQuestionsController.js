@@ -77,7 +77,7 @@ export const addQuestionsToAssessment = async (req, res) => {
 export const getAssesmentByCode = async (req, res) => {
   try {
     const { code } = req.params;
-    const { course, year } = req.query; // student's course & year (string values)
+    const { course, year } = req.query; // student's course & year (ObjectId or string name)
 
     const assessment = await assessmentModel.findOne({
       assessmentCode: code.toUpperCase()
@@ -120,9 +120,16 @@ export const getAssesmentByCode = async (req, res) => {
         filteredQuestionIds = [];
       } else {
         const matchingGroup = assesment.courseYearGroups.find(g => {
-          const gCourse = (g.course?.course || g.course?.toString() || '').toLowerCase().trim();
-          const gYear = (g.year?.academicYear || g.year?.toString() || '').toLowerCase().trim();
-          return gCourse === course.toLowerCase().trim() && gYear === year.toLowerCase().trim();
+          // Support both: populated object (g.course.course) and raw ObjectId (g.course.toString())
+          const gCourseId = g.course?._id?.toString() || g.course?.toString() || '';
+          const gYearId = g.year?._id?.toString() || g.year?.toString() || '';
+          const gCourseName = (g.course?.course || '').toLowerCase().trim();
+          const gYearName = (g.year?.academicYear || '').toLowerCase().trim();
+          const qCourse = course.toLowerCase().trim();
+          const qYear = year.toLowerCase().trim();
+          // Match by ObjectId OR by name string
+          return (gCourseId === qCourse || gCourseName === qCourse) &&
+                 (gYearId === qYear || gYearName === qYear);
         });
 
         if (matchingGroup) {
