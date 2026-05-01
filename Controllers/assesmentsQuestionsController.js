@@ -7,14 +7,11 @@ import { toKolkataTime } from "../utils/timezoneHelper.js";
 
 export const addQuestionsToAssessment = async (req, res) => {
   try {
-    const { id } = req.params; // assessmentId
+    const { id } = req.params;
     const { courseId, yearId, questionIds } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, message: "Invalid assessmentId" });
-    }
-    if (!courseId || !yearId) {
-      return res.status(400).json({ success: false, message: "courseId and yearId are required" });
     }
     if (!Array.isArray(questionIds) || questionIds.length === 0) {
       return res.status(400).json({ success: false, message: "questionIds must be a non-empty array" });
@@ -31,7 +28,6 @@ export const addQuestionsToAssessment = async (req, res) => {
     }
 
     let doc = await assesmentQuestionIdModel.findOne({ assesmentId: id });
-
     if (!doc) {
       doc = await assesmentQuestionIdModel.create({
         assesmentId: id,
@@ -40,32 +36,40 @@ export const addQuestionsToAssessment = async (req, res) => {
       });
     }
 
-    // Find existing group for this course+year
-    const groupIndex = doc.courseYearGroups.findIndex(
-      g => g.course.toString() === courseId && g.year.toString() === yearId
-    );
+    if (courseId && yearId) {
+      // Course+Year specific assignment
+      const groupIndex = doc.courseYearGroups.findIndex(
+        g => g.course.toString() === courseId && g.year.toString() === yearId
+      );
 
-    if (groupIndex === -1) {
-      // New group
-      doc.courseYearGroups.push({ course: courseId, year: yearId, questionIds: validIds });
+      if (groupIndex === -1) {
+        doc.courseYearGroups.push({ course: courseId, year: yearId, questionIds: validIds });
+      } else {
+        const existingSet = new Set(doc.courseYearGroups[groupIndex].questionIds.map(q => q.toString()));
+        const newIds = validIds.filter(qid => !existingSet.has(qid.toString()));
+        doc.courseYearGroups[groupIndex].questionIds.push(...newIds);
+      }
+      doc.markModified('courseYearGroups');
     } else {
-      // Merge unique ids
-      const existingSet = new Set(doc.courseYearGroups[groupIndex].questionIds.map(q => q.toString()));
+      // General assignment (all students) - add to flat questionIds only, not in any group
+      const existingSet = new Set(doc.questionIds.map(q => q.toString()));
       const newIds = validIds.filter(qid => !existingSet.has(qid.toString()));
-      doc.courseYearGroups[groupIndex].questionIds.push(...newIds);
+      doc.questionIds.push(...newIds);
     }
 
-    // Also update flat questionIds for backward compat
-    const allGroupIds = doc.courseYearGroups.flatMap(g => g.questionIds.map(q => q.toString()));
-    const uniqueAll = [...new Set(allGroupIds)];
-    doc.questionIds = uniqueAll;
+    // Sync flat questionIds = general + all group questions
+    const groupedIds = doc.courseYearGroups.flatMap(g => g.questionIds.map(q => q.toString()));
+    const generalIds = doc.questionIds.map(q => q.toString()).filter(id => !groupedIds.includes(id));
+    const allIds = [...new Set([...generalIds, ...groupedIds])];
+    doc.questionIds = allIds;
 
     await doc.save();
 
     return res.status(200).json({
       success: true,
       message: "Questions assigned successfully",
-      added: validIds.length
+      added: validIds.length,
+      mode: courseId && yearId ? "course+year" : "general"
     });
 
   } catch (error) {
@@ -77,7 +81,7 @@ export const addQuestionsToAssessment = async (req, res) => {
 export const getAssesmentByCode = async (req, res) => {
   try {
     const { code } = req.params;
-    const { course, year } = req.query; // student's course & year (ObjectId or string name)
+    const { course, year } = req.query;
 
     const assessment = await assessmentModel.findOne({
       assessmentCode: code.toUpperCase()
@@ -90,14 +94,8 @@ export const getAssesmentByCode = async (req, res) => {
     const assesment = await assesmentQuestionIdModel
       .findOne({ assesmentId: assessment._id })
       .populate({ path: "assesmentId" })
-      .populate({
-        path: "courseYearGroups.questionIds",
-        populate: { path: "topic" }
-      })
-      .populate({
-        path: "questionIds",
-        populate: { path: "topic" }
-      })
+      .populate({ path: "courseYearGroups.questionIds", populate: { path: "topic" } })
+      .populate({ path: "questionIds", populate: { path: "topic" } })
       .populate("courseYearGroups.course", "course")
       .populate("courseYearGroups.year", "academicYear");
 
@@ -111,46 +109,41 @@ export const getAssesmentByCode = async (req, res) => {
       });
     }
 
-    // If student's course+year provided, filter questions from matching group
     let filteredQuestionIds = assesment.questionIds;
 
     if (course && year) {
-      console.log('=== BACKEND FILTER DEBUG ===');
-      console.log('Student course param:', course);
-      console.log('Student year param:', year);
-      console.log('courseYearGroups count:', assesment.courseYearGroups?.length);
-      assesment.courseYearGroups?.forEach((g, i) => {
-        const gCourseId = g.course?._id?.toString() || g.course?.toString() || '';
-        const gYearId = g.year?._id?.toString() || g.year?.toString() || '';
-        const gCourseName = (g.course?.course || '').toLowerCase().trim();
-        const gYearName = (g.year?.academicYear || '').toLowerCase().trim();
-        console.log(`Group ${i}: courseId=${gCourseId}, courseName=${gCourseName}, yearId=${gYearId}, yearName=${gYearName}, questions=${g.questionIds?.length}`);
-      });
-      if (!assesment.courseYearGroups || assesment.courseYearGroups.length === 0) {
-        // No course+year groups assigned yet
-        filteredQuestionIds = [];
-      } else {
+      const hasCourseYearGroups = assesment.courseYearGroups && assesment.courseYearGroups.length > 0;
+
+      if (hasCourseYearGroups) {
+        // Try to find matching course+year group
         const matchingGroup = assesment.courseYearGroups.find(g => {
-          // Support both: populated object (g.course.course) and raw ObjectId (g.course.toString())
           const gCourseId = g.course?._id?.toString() || g.course?.toString() || '';
           const gYearId = g.year?._id?.toString() || g.year?.toString() || '';
           const gCourseName = (g.course?.course || '').toLowerCase().trim();
           const gYearName = (g.year?.academicYear || '').toLowerCase().trim();
           const qCourse = course.toLowerCase().trim();
           const qYear = year.toLowerCase().trim();
-          // Match by ObjectId OR by name string
           return (gCourseId === qCourse || gCourseName === qCourse) &&
                  (gYearId === qYear || gYearName === qYear);
         });
 
-        if (matchingGroup) {
-          console.log('MATCH FOUND - questions in group:', matchingGroup.questionIds?.length);
+        if (matchingGroup && matchingGroup.questionIds.length > 0) {
+          // Found specific group for this course+year
           filteredQuestionIds = matchingGroup.questionIds;
         } else {
-          console.log('NO MATCH FOUND - returning empty');
-          filteredQuestionIds = [];
+          // No specific group - return general questions (not in any group)
+          const groupedIdSet = new Set(
+            assesment.courseYearGroups.flatMap(g =>
+              g.questionIds.map(q => q._id?.toString() || q.toString())
+            )
+          );
+          const generalQuestions = assesment.questionIds.filter(
+            q => !groupedIdSet.has(q._id?.toString() || q.toString())
+          );
+          filteredQuestionIds = generalQuestions;
         }
       }
+      // If no courseYearGroups at all - return all flat questionIds (general mode)
     }
 
     const responseData = {
@@ -182,10 +175,8 @@ export const deleteQuestionFromAssessment = async (req, res) => {
       return res.status(404).json({ success: false, message: "AssesmentQuestionId not found" });
     }
 
-    // Remove from flat list
     doc.questionIds = doc.questionIds.filter(q => q.toString() !== questionId);
 
-    // Remove from all courseYearGroups
     doc.courseYearGroups.forEach(g => {
       g.questionIds = g.questionIds.filter(q => q.toString() !== questionId);
     });
