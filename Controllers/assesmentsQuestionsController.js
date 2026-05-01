@@ -114,17 +114,22 @@ export const getAssesmentByCode = async (req, res) => {
     // If student's course+year provided, filter questions from matching group
     let filteredQuestionIds = assesment.questionIds;
 
-    if (course && year && assesment.courseYearGroups?.length > 0) {
-      const matchingGroup = assesment.courseYearGroups.find(g => {
-        const gCourse = g.course?.course || g.course?.toString();
-        const gYear = g.year?.academicYear || g.year?.toString();
-        return gCourse === course && gYear === year;
-      });
-
-      if (matchingGroup) {
-        filteredQuestionIds = matchingGroup.questionIds;
-      } else {
+    if (course && year) {
+      if (!assesment.courseYearGroups || assesment.courseYearGroups.length === 0) {
+        // No course+year groups assigned yet
         filteredQuestionIds = [];
+      } else {
+        const matchingGroup = assesment.courseYearGroups.find(g => {
+          const gCourse = g.course?.course || g.course?.toString();
+          const gYear = g.year?.academicYear || g.year?.toString();
+          return gCourse === course && gYear === year;
+        });
+
+        if (matchingGroup) {
+          filteredQuestionIds = matchingGroup.questionIds;
+        } else {
+          filteredQuestionIds = [];
+        }
       }
     }
 
