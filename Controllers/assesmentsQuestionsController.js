@@ -120,9 +120,9 @@ export const getAssesmentByCode = async (req, res) => {
         filteredQuestionIds = [];
       } else {
         const matchingGroup = assesment.courseYearGroups.find(g => {
-          const gCourse = g.course?.course || g.course?.toString();
-          const gYear = g.year?.academicYear || g.year?.toString();
-          return gCourse === course && gYear === year;
+          const gCourse = (g.course?.course || g.course?.toString() || '').toLowerCase().trim();
+          const gYear = (g.year?.academicYear || g.year?.toString() || '').toLowerCase().trim();
+          return gCourse === course.toLowerCase().trim() && gYear === year.toLowerCase().trim();
         });
 
         if (matchingGroup) {
