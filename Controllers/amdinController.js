@@ -61,6 +61,7 @@ export const adminLogin = async (req, res) => {
     }
     const otp = generateOtp();
     otpStore['admin'] = { otp, expiresAt: Date.now() + 5 * 60 * 1000, adminId: admin._id };
+    console.log(`🔐 Admin Login OTP: ${otp}`);
     try {
       await sendDownloadOtpEmail(process.env.SMTP_FROM, otp, admin.userName);
     } catch (mailError) {
@@ -378,6 +379,7 @@ export const sendDownloadOtp = async (req, res) => {
     
     const otp = generateOtp();
     downloadOtpStore[adminId] = { otp, expiresAt: Date.now() + 5 * 60 * 1000 };
+    console.log(`📥 Download OTP: ${otp}`);
     
     await sendDownloadOtpEmail(process.env.SMTP_FROM, otp, admin.userName);
     return res.status(200).json({ success: true, message: "OTP sent to admin email" });

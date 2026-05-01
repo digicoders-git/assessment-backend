@@ -6,6 +6,16 @@ const questionSchema = new mongoose.Schema({
     ref: "Topic",
     required: true
   },
+  course: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Course",
+    required: true
+  },
+  year: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "AcademicYear",
+    required: true
+  },
   question: {
     type: String,
     required: true,
@@ -26,7 +36,7 @@ const questionSchema = new mongoose.Schema({
 
 //  COMPOUND UNIQUE INDEX
 questionSchema.index(
-  { topic: 1, question: 1 },
+  { topic: 1, course: 1, year: 1, question: 1 },
   { unique: true }
 );
 

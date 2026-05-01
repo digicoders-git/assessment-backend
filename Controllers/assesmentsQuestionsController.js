@@ -7,138 +7,69 @@ import { toKolkataTime } from "../utils/timezoneHelper.js";
 
 export const addQuestionsToAssessment = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { questionIds } = req.body;
+    const { id } = req.params; // assessmentId
+    const { courseId, yearId, questionIds } = req.body;
 
-    // 1️⃣ assessmentId validation
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid assessmentId"
-      });
+      return res.status(400).json({ success: false, message: "Invalid assessmentId" });
     }
-
+    if (!courseId || !yearId) {
+      return res.status(400).json({ success: false, message: "courseId and yearId are required" });
+    }
     if (!Array.isArray(questionIds) || questionIds.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "questionIds must be a non-empty array"
-      });
+      return res.status(400).json({ success: false, message: "questionIds must be a non-empty array" });
     }
 
-    // 2️⃣ Get assessment & totalQuestions
     const assessment = await assessmentModel.findById(id).select("totalQuestions");
     if (!assessment) {
-      return res.status(404).json({
-        success: false,
-        message: "Assessment not found"
-      });
+      return res.status(404).json({ success: false, message: "Assessment not found" });
     }
 
-    const totalQuestionsLimit = assessment.totalQuestions;
-
-    // 3️⃣ Validate questionIds
-    const validIds = questionIds.filter(qid =>
-      mongoose.Types.ObjectId.isValid(qid)
-    );
-
+    const validIds = questionIds.filter(qid => mongoose.Types.ObjectId.isValid(qid));
     if (validIds.length !== questionIds.length) {
-      return res.status(400).json({
-        success: false,
-        message: "One or more invalid questionIds"
+      return res.status(400).json({ success: false, message: "One or more invalid questionIds" });
+    }
+
+    let doc = await assesmentQuestionIdModel.findOne({ assesmentId: id });
+
+    if (!doc) {
+      doc = await assesmentQuestionIdModel.create({
+        assesmentId: id,
+        questionIds: [],
+        courseYearGroups: []
       });
     }
 
-    const existingQuestions = await questionModel.find({
-      _id: { $in: validIds }
-    }).select("_id");
-
-    if (existingQuestions.length !== validIds.length) {
-      return res.status(400).json({
-        success: false,
-        message: "One or more questions do not exist"
-      });
-    }
-
-    // 4️⃣ Get existing assigned questions
-    let assessmentQuestions = await assesmentQuestionIdModel.findOne({
-      assesmentId: id
-    });
-
-    const existingCount = assessmentQuestions
-      ? assessmentQuestions.questionIds.length
-      : 0;
-
-    // 🔴 LIMIT FULL
-    if (existingCount >= totalQuestionsLimit) {
-      return res.status(400).json({
-        success: false,
-        message: "Question limit already reached. Cannot add more questions.",
-        totalQuestionsLimit,
-        existingCount,
-        added: 0,
-        failed: validIds.length,
-        reason: "Assessment already has maximum questions"
-      });
-    }
-
-    // 5️⃣ Remove duplicates
-    const existingSet = assessmentQuestions
-      ? new Set(assessmentQuestions.questionIds.map(id => id.toString()))
-      : new Set();
-
-    const uniqueNewIds = validIds.filter(
-      qid => !existingSet.has(qid.toString())
+    // Find existing group for this course+year
+    const groupIndex = doc.courseYearGroups.findIndex(
+      g => g.course.toString() === courseId && g.year.toString() === yearId
     );
 
-    if (uniqueNewIds.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: "No new questions to add (all already assigned)",
-        added: 0,
-        failed: 0
-      });
-    }
-
-    //  Apply limit logic
-    const remainingSlots = totalQuestionsLimit - existingCount;
-
-    const questionsToAdd = uniqueNewIds.slice(0, remainingSlots);
-    const failedQuestions = uniqueNewIds.slice(remainingSlots);
-
-    //  Save
-    if (!assessmentQuestions) {
-      assessmentQuestions = await assesmentQuestionIdModel.create({
-        assesmentId: id,
-        questionIds: questionsToAdd
-      });
+    if (groupIndex === -1) {
+      // New group
+      doc.courseYearGroups.push({ course: courseId, year: yearId, questionIds: validIds });
     } else {
-      await assesmentQuestionIdModel.updateOne(
-        { assesmentId: id },
-        { $addToSet: { questionIds: { $each: questionsToAdd } } }
-      );
+      // Merge unique ids
+      const existingSet = new Set(doc.courseYearGroups[groupIndex].questionIds.map(q => q.toString()));
+      const newIds = validIds.filter(qid => !existingSet.has(qid.toString()));
+      doc.courseYearGroups[groupIndex].questionIds.push(...newIds);
     }
 
-    //  Final response
+    // Also update flat questionIds for backward compat
+    const allGroupIds = doc.courseYearGroups.flatMap(g => g.questionIds.map(q => q.toString()));
+    const uniqueAll = [...new Set(allGroupIds)];
+    doc.questionIds = uniqueAll;
+
+    await doc.save();
+
     return res.status(200).json({
       success: true,
-      message: "Questions assignment processed",
-      totalQuestionsLimit,
-      previouslyAssigned: existingCount,
-      requested: validIds.length,
-      added: questionsToAdd.length,
-      failed: failedQuestions.length,
-      failedReason:
-        failedQuestions.length > 0
-          ? "Assessment question limit exceeded"
-          : null
+      message: "Questions assigned successfully",
+      added: validIds.length
     });
 
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-      error: error.message
-    });
+    return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
   }
 };
 
@@ -146,27 +77,29 @@ export const addQuestionsToAssessment = async (req, res) => {
 export const getAssesmentByCode = async (req, res) => {
   try {
     const { code } = req.params;
+    const { course, year } = req.query; // student's course & year (string values)
 
     const assessment = await assessmentModel.findOne({
       assessmentCode: code.toUpperCase()
     });
 
     if (!assessment) {
-      return res.status(404).json({
-        success: false,
-        message: "Assessment not found"
-      });
+      return res.status(404).json({ success: false, message: "Assessment not found" });
     }
 
     const assesment = await assesmentQuestionIdModel
       .findOne({ assesmentId: assessment._id })
+      .populate({ path: "assesmentId" })
       .populate({
-        path: "assesmentId"
+        path: "courseYearGroups.questionIds",
+        populate: { path: "topic" }
       })
       .populate({
         path: "questionIds",
         populate: { path: "topic" }
-      });
+      })
+      .populate("courseYearGroups.course", "course")
+      .populate("courseYearGroups.year", "academicYear");
 
     if (!assesment) {
       return res.status(200).json({
@@ -178,10 +111,26 @@ export const getAssesmentByCode = async (req, res) => {
       });
     }
 
+    // If student's course+year provided, filter questions from matching group
+    let filteredQuestionIds = assesment.questionIds;
 
-    //  KOLKATA TIMEZONE FIX
+    if (course && year && assesment.courseYearGroups?.length > 0) {
+      const matchingGroup = assesment.courseYearGroups.find(g => {
+        const gCourse = g.course?.course || g.course?.toString();
+        const gYear = g.year?.academicYear || g.year?.toString();
+        return gCourse === course && gYear === year;
+      });
+
+      if (matchingGroup) {
+        filteredQuestionIds = matchingGroup.questionIds;
+      } else {
+        filteredQuestionIds = [];
+      }
+    }
+
     const responseData = {
       ...assesment.toObject(),
+      questionIds: filteredQuestionIds,
       assesmentId: {
         ...assesment.assesmentId.toObject(),
         startDateTime: toKolkataTime(assesment.assesmentId.startDateTime),
@@ -191,36 +140,33 @@ export const getAssesmentByCode = async (req, res) => {
       }
     };
 
-    return res.status(200).json({
-      success: true,
-      data: responseData
-    });
+    return res.status(200).json({ success: true, data: responseData });
 
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
-
 
 
 export const deleteQuestionFromAssessment = async (req, res) => {
   try {
     const { assesmentQuestionId, questionId } = req.params;
 
-    const existAssesmeQuestiontnId = await assesmentQuestionIdModel.findById({ _id: assesmentQuestionId });
-    if (!existAssesmeQuestiontnId) {
+    const doc = await assesmentQuestionIdModel.findById(assesmentQuestionId);
+    if (!doc) {
       return res.status(404).json({ success: false, message: "AssesmentQuestionId not found" });
     }
-    const questionArray = existAssesmeQuestiontnId.questionIds;
-    const existQuestionId = questionArray.includes(questionId);
 
-    if (!existQuestionId) {
-      return res.status(404).json({ success: false, message: "Question not found" });
-    }
-    await assesmentQuestionIdModel.findByIdAndUpdate({ _id: assesmentQuestionId }, { $pull: { questionIds: questionId } });
+    // Remove from flat list
+    doc.questionIds = doc.questionIds.filter(q => q.toString() !== questionId);
+
+    // Remove from all courseYearGroups
+    doc.courseYearGroups.forEach(g => {
+      g.questionIds = g.questionIds.filter(q => q.toString() !== questionId);
+    });
+    doc.markModified('courseYearGroups');
+
+    await doc.save();
 
     res.status(200).json({ success: true, message: "Question deleted" });
 
