@@ -115,6 +115,17 @@ export const getAssesmentByCode = async (req, res) => {
     let filteredQuestionIds = assesment.questionIds;
 
     if (course && year) {
+      console.log('=== BACKEND FILTER DEBUG ===');
+      console.log('Student course param:', course);
+      console.log('Student year param:', year);
+      console.log('courseYearGroups count:', assesment.courseYearGroups?.length);
+      assesment.courseYearGroups?.forEach((g, i) => {
+        const gCourseId = g.course?._id?.toString() || g.course?.toString() || '';
+        const gYearId = g.year?._id?.toString() || g.year?.toString() || '';
+        const gCourseName = (g.course?.course || '').toLowerCase().trim();
+        const gYearName = (g.year?.academicYear || '').toLowerCase().trim();
+        console.log(`Group ${i}: courseId=${gCourseId}, courseName=${gCourseName}, yearId=${gYearId}, yearName=${gYearName}, questions=${g.questionIds?.length}`);
+      });
       if (!assesment.courseYearGroups || assesment.courseYearGroups.length === 0) {
         // No course+year groups assigned yet
         filteredQuestionIds = [];
@@ -133,8 +144,10 @@ export const getAssesmentByCode = async (req, res) => {
         });
 
         if (matchingGroup) {
+          console.log('MATCH FOUND - questions in group:', matchingGroup.questionIds?.length);
           filteredQuestionIds = matchingGroup.questionIds;
         } else {
+          console.log('NO MATCH FOUND - returning empty');
           filteredQuestionIds = [];
         }
       }
