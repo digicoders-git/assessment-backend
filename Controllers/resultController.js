@@ -217,10 +217,7 @@ export const getResultsByAssessmentId = async (req, res) => {
     }
     if (Object.keys(matchFilter).length) basePipeline.push({ $match: matchFilter });
 
-    // Sort by createdAt to get first submission
-    basePipeline.push({ $sort: { createdAt: 1 } });
-
-    // Group by mobile
+    // Group by mobile - no sort needed, $first will get earliest by natural order
     basePipeline.push({
       $group: {
         _id: "$student.mobile",
