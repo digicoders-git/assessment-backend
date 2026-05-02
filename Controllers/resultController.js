@@ -249,10 +249,9 @@ export const getResultsByAssessmentId = async (req, res) => {
     const countResult = await resultModel.aggregate(countPipeline);
     const totalCount = countResult[0]?.total || 0;
 
-    // Get paginated data - sort by marks desc then duration asc
+    // Get paginated data
     const dataPipeline = [
       ...basePipeline,
-      { $sort: { firstMarks: -1, firstDuration: 1 } },
       { $skip: skip },
       { $limit: parseInt(limit) }
     ];
