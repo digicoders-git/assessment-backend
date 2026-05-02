@@ -165,14 +165,143 @@ export const getResultsByAssessmentId = async (req, res) => {
     const { id } = req.params;
 
     if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid assessmentId"
-      });
+      return res.status(400).json({ success: false, message: "Invalid assessmentId" });
     }
 
-    // filters & search
-    const { college, year, course, search = "" } = req.query;
+    const { college, year, course, search = "", page = 1, limit = 10 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Base pipeline - group by mobile to get first + reattempt
+    const basePipeline = [
+      {
+        $lookup: {
+          from: "assesmentquestions",
+          localField: "assesmentQuestions",
+          foreignField: "_id",
+          as: "assesmentQuestions"
+        }
+      },
+      { $unwind: "$assesmentQuestions" },
+      { $match: { "assesmentQuestions.assesmentId": new mongoose.Types.ObjectId(id) } },
+      {
+        $lookup: {
+          from: "assessments",
+          localField: "assesmentQuestions.assesmentId",
+          foreignField: "_id",
+          as: "assessment"
+        }
+      },
+      { $unwind: "$assessment" },
+      {
+        $lookup: {
+          from: "students",
+          localField: "student",
+          foreignField: "_id",
+          as: "student"
+        }
+      },
+      { $unwind: "$student" }
+    ];
+
+    // Apply filters
+    const matchFilter = {};
+    if (college && college !== "all") matchFilter["student.college"] = { $regex: college, $options: "i" };
+    if (year && year !== "all") matchFilter["student.year"] = { $regex: year, $options: "i" };
+    if (course && course !== "all") matchFilter["student.course"] = { $regex: course, $options: "i" };
+    if (search && search.trim()) {
+      const s = search.trim();
+      const orConds = [{ "student.name": { $regex: s, $options: "i" } }];
+      const digits = s.replace(/\D/g, "");
+      if (digits) orConds.push({ "student.mobile": Number(digits) });
+      matchFilter["$or"] = orConds;
+    }
+    if (Object.keys(matchFilter).length) basePipeline.push({ $match: matchFilter });
+
+    // Sort by createdAt to get first submission
+    basePipeline.push({ $sort: { createdAt: 1 } });
+
+    // Group by mobile
+    basePipeline.push({
+      $group: {
+        _id: "$student.mobile",
+        results: { $push: "$$ROOT" }
+      }
+    });
+    basePipeline.push({
+      $project: {
+        firstSubmission: { $arrayElemAt: ["$results", 0] },
+        reattempt: {
+          $cond: [
+            { $gt: [{ $size: "$results" }, 1] },
+            { $slice: ["$results", 1, { $size: "$results" }] },
+            []
+          ]
+        }
+      }
+    });
+
+    // Get total count
+    const countPipeline = [...basePipeline, { $count: "total" }];
+    const countResult = await resultModel.aggregate(countPipeline);
+    const totalCount = countResult[0]?.total || 0;
+
+    // Get paginated data - sort by first submission marks desc
+    const dataPipeline = [
+      ...basePipeline,
+      { $sort: { "firstSubmission.marks": -1, "firstSubmission.createdAt": 1 } },
+      { $skip: skip },
+      { $limit: parseInt(limit) }
+    ];
+
+    const allData = await resultModel.aggregate(dataPipeline);
+
+    const durationToSeconds = (duration) => {
+      if (!duration) return 0;
+      const parts = duration.split(':').map(Number);
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      return Number(duration) || 0;
+    };
+
+    const firstSubmission = [];
+    const reattempt = [];
+
+    allData.forEach(item => {
+      if (item.firstSubmission) firstSubmission.push(item.firstSubmission);
+      if (item.reattempt?.length > 0) reattempt.push(...item.reattempt);
+    });
+
+    // Rank based on position in sorted results (page-aware)
+    firstSubmission.forEach((item, index) => {
+      item.rank = skip + index + 1;
+    });
+
+    const assessmentName = firstSubmission?.[0]?.assessment?.assessmentName || null;
+    const certificateName = firstSubmission?.[0]?.assessment?.certificateName || null;
+
+    const clean = doc => {
+      const { assesmentQuestions, assessment, answers, questions, topics, ...rest } = doc;
+      return rest;
+    };
+
+    return res.status(200).json({
+      success: true,
+      assessmentName,
+      certificateName,
+      firstSubmission: firstSubmission.map(clean),
+      reattempt: reattempt.map(clean),
+      pagination: {
+        total: totalCount,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(totalCount / parseInt(limit))
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
+  }
+};
 
     // ---------------- AGGREGATION: GET ALL RESULTS (WITHOUT FILTER) ----------------
     let allData = await resultModel.aggregate([
@@ -231,127 +360,6 @@ export const getResultsByAssessmentId = async (req, res) => {
           }
         }
       }
-    ]);
-
-    // ---------------- FLATTEN ----------------
-    const firstSubmission = [];
-    const reattempt = [];
-
-    allData.forEach(item => {
-      if (item.firstSubmission) firstSubmission.push(item.firstSubmission);
-      if (item.reattempt?.length > 0) reattempt.push(...item.reattempt);
-    });
-
-    // ---------------- GET ASSESSMENT NAME (ONE TIME) ----------------
-    const assessmentName =
-      firstSubmission?.[0]?.assessment?.assessmentName || null;
-
-    const certificateName =
-      firstSubmission?.[0]?.assessment?.certificateName || null;
-
-    // ---------------- HELPER: Convert duration string to seconds ----------------
-    const durationToSeconds = (duration) => {
-      if (!duration) return 0;
-      const parts = duration.split(':').map(Number);
-      if (parts.length === 2) return parts[0] * 60 + parts[1];
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-      return Number(duration) || 0;
-    };
-
-    // ---------------- RANK CALCULATION ----------------
-    firstSubmission.sort((a, b) => {
-      if (b.marks !== a.marks) return b.marks - a.marks;
-      return durationToSeconds(a.duration) - durationToSeconds(b.duration);
-    });
-
-    let currentRank = 1;
-    firstSubmission.forEach((item, index) => {
-      if (index > 0) {
-        const prev = firstSubmission[index - 1];
-        if (
-          item.marks === prev.marks &&
-          durationToSeconds(item.duration) === durationToSeconds(prev.duration)
-        ) {
-          item.rank = prev.rank;
-        } else {
-          item.rank = currentRank;
-        }
-      } else {
-        item.rank = currentRank;
-      }
-      currentRank++;
-    });
-
-    // ---------------- APPLY FILTER / SEARCH ----------------
-    let filteredFirst = firstSubmission;
-    let filteredReattempt = reattempt;
-
-    if (
-      (college && college !== "all") ||
-      (year && year !== "all") ||
-      (course && course !== "all") ||
-      (search && search.trim() !== "")
-    ) {
-      filteredFirst = firstSubmission.filter(item => {
-        let match = true;
-
-        if (college && college !== "all")
-          match = match && item.student.college?.toLowerCase().includes(college.toLowerCase());
-
-        if (year && year !== "all")
-          match = match && item.student.year?.toLowerCase().includes(year.toLowerCase());
-
-        if (course && course !== "all")
-          match = match && item.student.course?.toLowerCase().includes(course.toLowerCase());
-
-        if (search && search.trim() !== "") {
-          const s = search.trim().toLowerCase();
-          const inName = item.student.name?.toLowerCase().includes(s);
-          const inMobile = !isNaN(search) && item.student.mobile === Number(search);
-          match = match && (inName || inMobile);
-        }
-
-        return match;
-      });
-
-      filteredReattempt = reattempt.filter(item =>
-        filteredFirst.some(f => f.student.mobile === item.student.mobile)
-      );
-    }
-
-    // ---------------- CLEAN RESPONSE ----------------
-    const clean = doc => {
-      const {
-        assesmentQuestions,
-        assessment,
-        answers,
-        questions,
-        topics,
-        ...rest
-      } = doc;
-      return rest;
-    };
-
-    // ---------------- FINAL RESPONSE ----------------
-    return res.status(200).json({
-      success: true,
-      assessmentName,
-      certificateName,
-      firstSubmission: filteredFirst.map(clean),
-      reattempt: filteredReattempt.map(clean),
-      pagination: {
-        count: filteredFirst.length
-      }
-    });
-
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-      error: error.message
-    });
-  }
-};
 
 
 // get by number;
