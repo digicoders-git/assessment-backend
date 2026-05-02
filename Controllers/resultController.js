@@ -242,7 +242,7 @@ export const getResultsByAssessmentId = async (req, res) => {
 
     // Get total count
     const countPipeline = [...basePipeline, { $count: "total" }];
-    const countResult = await resultModel.aggregate(countPipeline).allowDiskUse(true);
+    const countResult = await resultModel.aggregate(countPipeline, { allowDiskUse: true });
     const totalCount = countResult[0]?.total || 0;
 
     // Get paginated data - sort by first submission marks desc
@@ -253,7 +253,7 @@ export const getResultsByAssessmentId = async (req, res) => {
       { $limit: parseInt(limit) }
     ];
 
-    const allData = await resultModel.aggregate(dataPipeline).allowDiskUse(true);
+    const allData = await resultModel.aggregate(dataPipeline, { allowDiskUse: true });
 
     const durationToSeconds = (duration) => {
       if (!duration) return 0;
