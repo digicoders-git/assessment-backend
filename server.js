@@ -34,12 +34,21 @@ app.use(express.json());
 
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+// CORS allowed origins - updated
+const allowedOrigins = [
+  "https://assessment.thedigicoders.com",
+  "https://talenthunt.thedigicoders.com",
+  "https://assesment-portal-digicoders.vercel.app",
+  "https://erp.thedigicoders.com",
+  "https://student.thedigicoders.com",
+  "http://localhost:5173",
+  "http://localhost:5174"
+];
+
 app.use(cors({
-  origin: ["https://assessment.thedigicoders.com","http://localhost:5173","https://assesment-portal-digicoders.vercel.app","http://localhost:5174","https://erp.thedigicoders.com","https://student.thedigicoders.com","https://talenthunt.thedigicoders.com"],
+  origin: allowedOrigins,
   credentials: true
 }));
-
-app.use(express.urlencoded({ extended: true }));
 
 
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
