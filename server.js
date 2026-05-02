@@ -35,9 +35,11 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(cors({
-  origin: ["https://assessment.thedigicoders.com/","http://localhost:5173","https://assesment-portal-digicoders.vercel.app","http://localhost:5174","https://erp.thedigicoders.com","https://student.thedigicoders.com","https://talenthunt.thedigicoders.com"],
+  origin: ["https://assessment.thedigicoders.com","http://localhost:5173","https://assesment-portal-digicoders.vercel.app","http://localhost:5174","https://erp.thedigicoders.com","https://student.thedigicoders.com","https://talenthunt.thedigicoders.com"],
   credentials: true
-}));app.use(express.urlencoded({ extended: true }));
+}));
+
+app.use(express.urlencoded({ extended: true }));
 
 
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
