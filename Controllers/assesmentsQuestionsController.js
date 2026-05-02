@@ -93,7 +93,7 @@ export const getAssesmentByCode = async (req, res) => {
 
     const assesment = await assesmentQuestionIdModel
       .findOne({ assesmentId: assessment._id })
-      .populate({ path: "assesmentId" })
+      .populate({ path: "assesmentId", populate: { path: "allowedYears", select: "academicYear" } })
       .populate({ path: "courseYearGroups.questionIds", populate: { path: "topic" } })
       .populate({ path: "questionIds", populate: { path: "topic" } })
       .populate("courseYearGroups.course", "course")
