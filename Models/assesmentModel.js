@@ -63,7 +63,13 @@ const assessmentSchema = new mongoose.Schema({
   count:{
     type:Number,
     default:0
-  }
+  },
+  allowedYears: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AcademicYear"
+    }
+  ]
 }, { timestamps: true });
 
 assessmentSchema.index({ endDateTime: 1, status: 1 });

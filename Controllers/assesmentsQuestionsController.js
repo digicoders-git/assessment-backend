@@ -85,7 +85,7 @@ export const getAssesmentByCode = async (req, res) => {
 
     const assessment = await assessmentModel.findOne({
       assessmentCode: code.toUpperCase()
-    });
+    }).populate("allowedYears", "academicYear");
 
     if (!assessment) {
       return res.status(404).json({ success: false, message: "Assessment not found" });

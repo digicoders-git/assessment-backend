@@ -67,7 +67,8 @@ export const createAssessment = async (req, res) => {
       endDateTime,
       generateCertificate,
       certificateName: generateCertificate ? certificateName : null,
-      remark
+      remark,
+      allowedYears: req.body.allowedYears || []
     });
 
     return res.status(201).json({
@@ -190,6 +191,7 @@ export const getAssesmentByStatus = async (req, res) => {
     const assessments = await assessmentModel
       .find(filter)
       .populate("certificateName")
+      .populate("allowedYears", "academicYear")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
