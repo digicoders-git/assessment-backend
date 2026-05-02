@@ -303,64 +303,6 @@ export const getResultsByAssessmentId = async (req, res) => {
   }
 };
 
-    // ---------------- AGGREGATION: GET ALL RESULTS (WITHOUT FILTER) ----------------
-    let allData = await resultModel.aggregate([
-      {
-        $lookup: {
-          from: "assesmentquestions",
-          localField: "assesmentQuestions",
-          foreignField: "_id",
-          as: "assesmentQuestions"
-        }
-      },
-      { $unwind: "$assesmentQuestions" },
-
-      {
-        $match: {
-          "assesmentQuestions.assesmentId": new mongoose.Types.ObjectId(id)
-        }
-      },
-
-      // 🔥 IMPORTANT FIX: populate assesmentId → assessment
-      {
-        $lookup: {
-          from: "assessments",
-          localField: "assesmentQuestions.assesmentId",
-          foreignField: "_id",
-          as: "assessment"
-        }
-      },
-      { $unwind: "$assessment" },
-
-      {
-        $lookup: {
-          from: "students",
-          localField: "student",
-          foreignField: "_id",
-          as: "student"
-        }
-      },
-      { $unwind: "$student" },
-
-      {
-        $group: {
-          _id: "$student.mobile",
-          results: { $push: "$$ROOT" }
-        }
-      },
-      {
-        $project: {
-          firstSubmission: { $arrayElemAt: ["$results", 0] },
-          reattempt: {
-            $cond: [
-              { $gt: [{ $size: "$results" }, 1] },
-              { $slice: ["$results", 1, { $size: "$results" }] },
-              []
-            ]
-          }
-        }
-      }
-
 
 // get by number;
 
