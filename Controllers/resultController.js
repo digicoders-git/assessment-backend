@@ -224,12 +224,16 @@ export const getResultsByAssessmentId = async (req, res) => {
     basePipeline.push({
       $group: {
         _id: "$student.mobile",
+        firstMarks: { $first: "$marks" },
+        firstDuration: { $first: "$duration" },
         results: { $push: "$$ROOT" }
       }
     });
     basePipeline.push({
       $project: {
         firstSubmission: { $arrayElemAt: ["$results", 0] },
+        firstMarks: 1,
+        firstDuration: 1,
         reattempt: {
           $cond: [
             { $gt: [{ $size: "$results" }, 1] },
@@ -242,18 +246,18 @@ export const getResultsByAssessmentId = async (req, res) => {
 
     // Get total count
     const countPipeline = [...basePipeline, { $count: "total" }];
-    const countResult = await resultModel.aggregate(countPipeline, { allowDiskUse: true });
+    const countResult = await resultModel.aggregate(countPipeline);
     const totalCount = countResult[0]?.total || 0;
 
-    // Get paginated data - sort by first submission marks desc
+    // Get paginated data - sort by marks desc then duration asc
     const dataPipeline = [
       ...basePipeline,
-      { $sort: { "firstSubmission.marks": -1, "firstSubmission.createdAt": 1 } },
+      { $sort: { firstMarks: -1, firstDuration: 1 } },
       { $skip: skip },
       { $limit: parseInt(limit) }
     ];
 
-    const allData = await resultModel.aggregate(dataPipeline, { allowDiskUse: true });
+    const allData = await resultModel.aggregate(dataPipeline);
 
     const durationToSeconds = (duration) => {
       if (!duration) return 0;
