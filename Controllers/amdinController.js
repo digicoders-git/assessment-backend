@@ -383,11 +383,14 @@ export const sendDownloadOtp = async (req, res) => {
     const admin = await amdidnModel.findById(adminId);
     if (!admin) return res.status(404).json({ success: false, message: "Admin not found" });
     
+    const { latitude, longitude, address, ip } = req.body;
+    const locationInfo = { latitude, longitude, address, ip };
+
     const otp = generateOtp();
     downloadOtpStore[adminId] = { otp, expiresAt: Date.now() + 5 * 60 * 1000 };
-    console.log(`📥 Download OTP: ${otp}`);
+    console.log(`📥 Download OTP for ${admin.userName} | IP: ${ip || 'Unknown'} | ${address || 'No address'}`);
     
-    await sendDownloadOtpEmail(process.env.SMTP_FROM, otp, admin.userName);
+    await sendDownloadOtpEmail(process.env.SMTP_FROM, otp, admin.userName, locationInfo);
     return res.status(200).json({ success: true, message: "OTP sent to admin email" });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to send OTP", error: error.message });

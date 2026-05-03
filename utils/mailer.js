@@ -67,7 +67,7 @@ export const sendOtpEmail = async (toEmail, otp, userName, locationInfo = {}, is
   }
 };
 
-export const sendDownloadOtpEmail = async (toEmail, otp, userName) => {
+export const sendDownloadOtpEmail = async (toEmail, otp, userName, locationInfo = {}) => {
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT),
@@ -76,10 +76,24 @@ export const sendDownloadOtpEmail = async (toEmail, otp, userName) => {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
-    tls: {
-      rejectUnauthorized: false
-    }
+    tls: { rejectUnauthorized: false }
   });
+
+  const { latitude, longitude, address, ip } = locationInfo;
+  const mapsLink = latitude && longitude ? `https://www.google.com/maps?q=${latitude},${longitude}` : null;
+
+  const locationBlock = `
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px 20px;margin:20px 0;">
+      <p style="color:#166534;font-size:13px;font-weight:bold;margin:0 0 10px;">📍 Download Request Location</p>
+      <table style="width:100%;font-size:13px;color:#334155;">
+        <tr><td style="padding:3px 0;">🌐 <strong>IP Address:</strong></td><td>${ip || 'Unknown'}</td></tr>
+        <tr><td style="padding:3px 0;">📌 <strong>Coordinates:</strong></td><td>${latitude ? `${latitude}, ${longitude}` : 'Unknown'}</td></tr>
+        <tr><td style="padding:3px 0;">🏙️ <strong>Address:</strong></td><td>${address || 'Unknown'}</td></tr>
+        <tr><td style="padding:3px 0;">🕐 <strong>Time:</strong></td><td>${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</td></tr>
+        ${mapsLink ? `<tr><td style="padding:3px 0;">🗺️ <strong>Map:</strong></td><td><a href="${mapsLink}" style="color:#2563eb;">View on Google Maps</a></td></tr>` : ''}
+      </table>
+    </div>
+  `;
 
   try {
     await transporter.sendMail({
@@ -116,6 +130,8 @@ export const sendDownloadOtpEmail = async (toEmail, otp, userName) => {
                 <tr><td style="padding:4px 0;">🕐 <strong>Time:</strong></td><td>${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</td></tr>
               </table>
             </div>
+
+            ${locationBlock}
 
             <p style="color:#475569;font-size:14px;">Enter the OTP below in the admin panel to authorize this download:</p>
 
