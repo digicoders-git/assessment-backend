@@ -257,6 +257,7 @@ export const getResultsByAssessmentId = async (req, res) => {
 
     const allData = await resultModel.aggregate(dataPipeline);
     const reattemptTotal = allData.reduce((sum, item) => sum + (item.reattempt?.length || 0), 0);
+    console.log(`[DEBUG] allData length: ${allData.length}, reattemptTotal: ${reattemptTotal}, sample reattempt: ${JSON.stringify(allData[0]?.reattempt?.length)}`);
 
     const durationToSeconds = (duration) => {
       if (!duration) return 0;
