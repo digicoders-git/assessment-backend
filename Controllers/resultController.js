@@ -259,16 +259,31 @@ export const getResultsByAssessmentId = async (req, res) => {
     const reattemptTotal = allData.reduce((sum, item) => sum + (item.reattempt?.length || 0), 0);
     console.log(`[DEBUG] allData length: ${allData.length}, reattemptTotal: ${reattemptTotal}, sample reattempt: ${JSON.stringify(allData[0]?.reattempt?.length)}`);
 
-    // Also get total raw submissions count for this assessment
-    const totalRawPipeline = [
-      { $lookup: { from: "assesmentquestions", localField: "assesmentQuestions", foreignField: "_id", as: "aq" } },
-      { $unwind: "$aq" },
-      { $match: { "aq.assesmentId": new mongoose.Types.ObjectId(id) } },
-      { $count: "total" }
+    // Get all reattempts (rank: null) for this assessment
+    const reattemptPipeline = [
+      {
+        $lookup: {
+          from: "assesmentquestions",
+          localField: "assesmentQuestions",
+          foreignField: "_id",
+          as: "assesmentQuestions"
+        }
+      },
+      { $unwind: "$assesmentQuestions" },
+      { $match: { "assesmentQuestions.assesmentId": new mongoose.Types.ObjectId(id), rank: null } },
+      {
+        $lookup: {
+          from: "students",
+          localField: "student",
+          foreignField: "_id",
+          as: "student"
+        }
+      },
+      { $unwind: "$student" }
     ];
-    const totalRawResult = await resultModel.aggregate(totalRawPipeline);
-    const totalSubmissions = totalRawResult[0]?.total || 0;
-    const totalReattempts = totalSubmissions - totalCount;
+    if (Object.keys(matchFilter).length) reattemptPipeline.push({ $match: matchFilter });
+    const reattemptDocs = await resultModel.aggregate(reattemptPipeline);
+    const totalReattempts = reattemptDocs.length;
 
     const durationToSeconds = (duration) => {
       if (!duration) return 0;
@@ -304,7 +319,7 @@ export const getResultsByAssessmentId = async (req, res) => {
       assessmentName,
       certificateName,
       firstSubmission: firstSubmission.map(clean),
-      reattempt: reattempt.map(clean),
+      reattempt: reattemptDocs.map(clean),
       reattemptTotal: totalReattempts,
       pagination: {
         total: totalCount,
