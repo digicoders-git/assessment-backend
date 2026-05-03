@@ -259,6 +259,17 @@ export const getResultsByAssessmentId = async (req, res) => {
     const reattemptTotal = allData.reduce((sum, item) => sum + (item.reattempt?.length || 0), 0);
     console.log(`[DEBUG] allData length: ${allData.length}, reattemptTotal: ${reattemptTotal}, sample reattempt: ${JSON.stringify(allData[0]?.reattempt?.length)}`);
 
+    // Also get total raw submissions count for this assessment
+    const totalRawPipeline = [
+      { $lookup: { from: "assesmentquestions", localField: "assesmentQuestions", foreignField: "_id", as: "aq" } },
+      { $unwind: "$aq" },
+      { $match: { "aq.assesmentId": new mongoose.Types.ObjectId(id) } },
+      { $count: "total" }
+    ];
+    const totalRawResult = await resultModel.aggregate(totalRawPipeline);
+    const totalSubmissions = totalRawResult[0]?.total || 0;
+    const totalReattempts = totalSubmissions - totalCount;
+
     const durationToSeconds = (duration) => {
       if (!duration) return 0;
       const parts = duration.split(':').map(Number);
@@ -294,7 +305,7 @@ export const getResultsByAssessmentId = async (req, res) => {
       certificateName,
       firstSubmission: firstSubmission.map(clean),
       reattempt: reattempt.map(clean),
-      reattemptTotal,
+      reattemptTotal: totalReattempts,
       pagination: {
         total: totalCount,
         page: parseInt(page),
