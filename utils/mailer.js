@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 
-export const sendOtpEmail = async (toEmail, otp, userName) => {
+export const sendOtpEmail = async (toEmail, otp, userName, locationInfo = {}, isUserLogin = false) => {
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT),
@@ -9,29 +9,55 @@ export const sendOtpEmail = async (toEmail, otp, userName) => {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
-    tls: {
-      rejectUnauthorized: false
-    }
+    tls: { rejectUnauthorized: false }
   });
+
+  const { latitude, longitude, address, ip } = locationInfo;
+  const mapsLink = latitude && longitude
+    ? `https://www.google.com/maps?q=${latitude},${longitude}`
+    : null;
+
+  const locationBlock = `
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px 20px;margin:20px 0;">
+      <p style="color:#166534;font-size:13px;font-weight:bold;margin:0 0 10px;">📍 Login Location Details</p>
+      <table style="width:100%;font-size:13px;color:#334155;">
+        <tr><td style="padding:3px 0;">🌐 <strong>IP Address:</strong></td><td>${ip || 'Unknown'}</td></tr>
+        <tr><td style="padding:3px 0;">📌 <strong>Coordinates:</strong></td><td>${latitude ? `${latitude}, ${longitude}` : 'Unknown'}</td></tr>
+        <tr><td style="padding:3px 0;">🏙️ <strong>Address:</strong></td><td>${address || 'Unknown'}</td></tr>
+        <tr><td style="padding:3px 0;">🕐 <strong>Time:</strong></td><td>${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</td></tr>
+        ${mapsLink ? `<tr><td style="padding:3px 0;">🗺️ <strong>Map:</strong></td><td><a href="${mapsLink}" style="color:#2563eb;">View on Google Maps</a></td></tr>` : ''}
+      </table>
+    </div>
+  `;
+
+  const subject = isUserLogin
+    ? `DigiCoders Assessment Portal - User Login Alert: ${userName}`
+    : `DigiCoders Assessment Portal OTP for Login: ${otp}`;
+
+  const bodyContent = isUserLogin
+    ? `<p style="color:#2D3748;font-size:16px;">User <strong>${userName}</strong> has logged in to the admin panel.</p>${locationBlock}
+       <div style="background:#fef9c3;border-left:4px solid #eab308;padding:12px;border-radius:4px;">
+         <p style="color:#854d0e;font-size:13px;margin:0;">⚠️ If this was not you, please change the password immediately.</p>
+       </div>`
+    : `<p style="color:#2D3748;font-size:16px;">Hello <strong>${userName}</strong>,</p>
+       <p style="color:#4A5568;">Use the OTP below to complete your login. It is valid for <strong>5 minutes</strong>.</p>
+       <div style="text-align:center;margin:28px 0;">
+         <span style="font-size:36px;font-weight:bold;letter-spacing:12px;color:#319795;background:#E6FFFA;padding:16px 32px;border-radius:8px;">${otp}</span>
+       </div>
+       ${locationBlock}
+       <p style="color:#718096;font-size:13px;">If you did not request this, please ignore this email.</p>`;
 
   try {
     await transporter.sendMail({
       from: `"DigiCoders Assessment Portal" <${process.env.SMTP_USER}>`,
       to: toEmail,
-      subject: `DigiCoders Assessment Portal OTP for Login: ${otp}`,
+      subject,
       html: `
-        <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+        <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
           <div style="background:#319795;padding:24px;text-align:center;">
             <h2 style="color:#fff;margin:0;">DigiCoders Assessment Portal</h2>
           </div>
-          <div style="padding:32px;">
-            <p style="color:#2D3748;font-size:16px;">Hello <strong>${userName}</strong>,</p>
-            <p style="color:#4A5568;">Use the OTP below to complete your login. It is valid for <strong>5 minutes</strong>.</p>
-            <div style="text-align:center;margin:32px 0;">
-              <span style="font-size:36px;font-weight:bold;letter-spacing:12px;color:#319795;background:#E6FFFA;padding:16px 32px;border-radius:8px;">${otp}</span>
-            </div>
-            <p style="color:#718096;font-size:13px;">If you did not request this, please ignore this email.</p>
-          </div>
+          <div style="padding:32px;">${bodyContent}</div>
         </div>
       `,
     });

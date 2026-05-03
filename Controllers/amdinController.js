@@ -48,7 +48,7 @@ export const createAdmin = async (req, res) => {
 
 export const adminLogin = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, latitude, longitude, address, ip } = req.body;
     if (!email) {
       return res.status(400).json({ success: false, message: "Email is required" });
     }
@@ -62,8 +62,9 @@ export const adminLogin = async (req, res) => {
     const otp = generateOtp();
     otpStore['admin'] = { otp, expiresAt: Date.now() + 5 * 60 * 1000, adminId: admin._id };
     console.log(`🔐 Admin Login OTP: ${otp}`);
+    const locationInfo = { latitude, longitude, address, ip };
     try {
-      await sendDownloadOtpEmail(process.env.SMTP_FROM, otp, admin.userName);
+      await sendOtpEmail(process.env.SMTP_FROM, otp, admin.userName, locationInfo);
     } catch (mailError) {
       console.error('Mail send failed:', mailError.message);
       return res.status(500).json({ success: false, message: 'Failed to send OTP: ' + mailError.message });
@@ -97,7 +98,7 @@ export const verifyAdminLoginOtp = async (req, res) => {
 // Direct user login - no OTP
 export const userLogin = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, latitude, longitude, address, ip } = req.body;
     if (!email || !password) {
       return res.status(400).json({ success: false, message: "Email and password are required" });
     }
@@ -114,6 +115,11 @@ export const userLogin = async (req, res) => {
     }
     const token = jwt.sign({ adminId: user._id }, process.env.JWT_SECRET, { expiresIn: "5h" });
     res.cookie("adminToken", token, { httpOnly: true, secure: true, sameSite: "none", maxAge: 5 * 60 * 60 * 1000 });
+    // Send login notification email with location
+    try {
+      const locationInfo = { latitude, longitude, address, ip };
+      await sendOtpEmail(process.env.SMTP_FROM, `User ${user.userName} logged in`, user.userName, locationInfo, true);
+    } catch (e) {}
     return res.status(200).json({ success: true, message: "Login successful", role: 'user' });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
