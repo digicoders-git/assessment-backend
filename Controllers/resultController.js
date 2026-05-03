@@ -246,6 +246,13 @@ export const getResultsByAssessmentId = async (req, res) => {
     const countResult = await resultModel.aggregate(countPipeline);
     const totalCount = countResult[0]?.total || 0;
 
+    // Get total reattempt count
+    const reattemptCountPipeline = [...basePipeline, {
+      $project: { reattemptCount: { $size: { $ifNull: [{ $slice: ["$results", 1, { $size: { $ifNull: ["$results", []] } }] }, []] } } }
+    }, { $group: { _id: null, total: { $sum: "$reattemptCount" } } }];
+    const reattemptCountResult = await resultModel.aggregate(reattemptCountPipeline).catch(() => []);
+    const reattemptTotal = reattemptCountResult[0]?.total || 0;
+
     // Get paginated data
     const dataPipeline = [
       ...basePipeline,
@@ -290,6 +297,7 @@ export const getResultsByAssessmentId = async (req, res) => {
       certificateName,
       firstSubmission: firstSubmission.map(clean),
       reattempt: reattempt.map(clean),
+      reattemptTotal,
       pagination: {
         total: totalCount,
         page: parseInt(page),
