@@ -217,7 +217,10 @@ export const getResultsByAssessmentId = async (req, res) => {
     }
     if (Object.keys(matchFilter).length) basePipeline.push({ $match: matchFilter });
 
-    // Group by mobile - no sort needed, $first will get earliest by natural order
+    // Sort before group: marks desc, duration asc, createdAt asc
+    basePipeline.push({ $sort: { marks: -1, createdAt: 1 } });
+
+    // Group by mobile
     basePipeline.push({
       $group: {
         _id: "$student.mobile",
@@ -246,16 +249,28 @@ export const getResultsByAssessmentId = async (req, res) => {
     const countResult = await resultModel.aggregate(countPipeline);
     const totalCount = countResult[0]?.total || 0;
 
-    // Get total reattempt count - simple approach
+    // Total raw submissions - unique = reattempts
+    const rawCountPipeline = [
+      { $lookup: { from: "assesmentquestions", localField: "assesmentQuestions", foreignField: "_id", as: "aq" } },
+      { $unwind: "$aq" },
+      { $match: { "aq.assesmentId": new mongoose.Types.ObjectId(id) } },
+      { $count: "total" }
+    ];
+    const rawCountResult = await resultModel.aggregate(rawCountPipeline);
+    const totalRawSubmissions = rawCountResult[0]?.total || 0;
+    const totalReattempts = totalRawSubmissions - totalCount;
 
     // Get paginated data
     const dataPipeline = [
       ...basePipeline,
+      { $sort: { firstMarks: -1 } },
       { $skip: skip },
       { $limit: parseInt(limit) }
     ];
 
     const allData = await resultModel.aggregate(dataPipeline);
+
+    // reattemptTotal from countPipeline difference
     const reattemptTotal = allData.reduce((sum, item) => sum + (item.reattempt?.length || 0), 0);
     console.log(`[DEBUG] allData length: ${allData.length}, reattemptTotal: ${reattemptTotal}`);
 
@@ -294,7 +309,7 @@ export const getResultsByAssessmentId = async (req, res) => {
       certificateName,
       firstSubmission: firstSubmission.map(clean),
       reattempt: reattempt.map(clean),
-      reattemptTotal,
+      reattemptTotal: totalReattempts,
       pagination: {
         total: totalCount,
         page: parseInt(page),
