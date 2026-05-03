@@ -217,9 +217,6 @@ export const getResultsByAssessmentId = async (req, res) => {
     }
     if (Object.keys(matchFilter).length) basePipeline.push({ $match: matchFilter });
 
-    // Sort before group: marks desc, duration asc, createdAt asc
-    basePipeline.push({ $sort: { marks: -1, createdAt: 1 } });
-
     // Group by mobile
     basePipeline.push({
       $group: {
@@ -263,7 +260,6 @@ export const getResultsByAssessmentId = async (req, res) => {
     // Get paginated data
     const dataPipeline = [
       ...basePipeline,
-      { $sort: { firstMarks: -1 } },
       { $skip: skip },
       { $limit: parseInt(limit) }
     ];
