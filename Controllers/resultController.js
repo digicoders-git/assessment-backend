@@ -653,7 +653,6 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
       pipeline.push({ $match: studentMatch });
     }
 
-    pipeline.push({ $sort: { createdAt: 1 } });
     pipeline.push({
       $group: {
         _id: "$student.mobile",
@@ -662,7 +661,7 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
     });
     pipeline.push({ $project: { firstSubmission: { $arrayElemAt: ["$results", 0] } } });
 
-    const results = await resultModel.aggregate(pipeline);
+    const results = await resultModel.aggregate(pipeline, { allowDiskUse: true });
 
     const finalResults = results.map((r) => r.firstSubmission).filter(Boolean);
     finalResults.sort((a, b) => Number(a.rank) - Number(b.rank));
