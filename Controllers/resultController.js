@@ -610,7 +610,6 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
 
     const { college, year, course, search } = req.query;
 
-    // ---------------- FETCH RESULTS ----------------
     const pipeline = [
       {
         $lookup: {
@@ -621,9 +620,7 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
         },
       },
       { $unwind: "$assesmentQuestions" },
-      {
-        $match: { "assesmentQuestions.assesmentId": new mongoose.Types.ObjectId(id) },
-      },
+      { $match: { "assesmentQuestions.assesmentId": new mongoose.Types.ObjectId(id) } },
       {
         $lookup: {
           from: "students",
@@ -635,78 +632,76 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
       { $unwind: "$student" },
     ];
 
-    // ---------------- APPLY FILTERS ----------------
     const studentMatch = {};
-
     if (college && college !== "all") studentMatch["student.college"] = { $regex: college, $options: "i" };
     if (year && year !== "all") studentMatch["student.year"] = { $regex: year, $options: "i" };
     if (course && course !== "all") studentMatch["student.course"] = { $regex: course, $options: "i" };
-
-    if (search && search.trim() !== "") {
+    if (search && search.trim()) {
       const orConditions = [{ "student.name": { $regex: search, $options: "i" } }];
-      const mobileDigits = search.replace(/\D/g, "");
-      if (mobileDigits) orConditions.push({ "student.mobile": Number(mobileDigits) }); // exact match
+      const digits = search.replace(/\D/g, "");
+      if (digits) orConditions.push({ "student.mobile": Number(digits) });
       studentMatch["$or"] = orConditions;
     }
+    if (Object.keys(studentMatch).length) pipeline.push({ $match: studentMatch });
 
-    if (Object.keys(studentMatch).length) {
-      pipeline.push({ $match: studentMatch });
-    }
+    // Project only needed fields to reduce memory
+    pipeline.push({
+      $project: {
+        rank: 1,
+        marks: 1,
+        total: 1,
+        duration: 1,
+        createdAt: 1,
+        "student.name": 1,
+        "student.code": 1,
+        "student.course": 1,
+        "student.year": 1,
+        "student.college": 1,
+        "student.mobile": 1,
+      }
+    });
 
     pipeline.push({
       $group: {
         _id: "$student.mobile",
-        results: { $push: "$$ROOT" },
+        firstSubmission: { $first: "$$ROOT" },
       },
     });
-    pipeline.push({ $project: { firstSubmission: { $arrayElemAt: ["$results", 0] } } });
+
+    pipeline.push({ $sort: { "firstSubmission.rank": 1 } });
 
     const results = await resultModel.aggregate(pipeline, { allowDiskUse: true });
-
     const finalResults = results.map((r) => r.firstSubmission).filter(Boolean);
-    finalResults.sort((a, b) => Number(a.rank) - Number(b.rank));
 
-    // ---------------- EXCEL ----------------
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Assessment Results");
+    // Build CSV in memory (much faster than ExcelJS for large data)
+    const headers = ["Rank","Name","Code","Course","Year","College","Phone","Score","Duration","Date"];
+    const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 
-    worksheet.columns = [
-      { header: "Rank", key: "rank", width: 8 },
-      { header: "Name", key: "name", width: 20 },
-      { header: "Code", key: "code", width: 15 },
-      { header: "Course", key: "course", width: 15 },
-      { header: "Year", key: "year", width: 15 },
-      { header: "College", key: "college", width: 25 },
-      { header: "Phone", key: "phone", width: 15 },
-      { header: "Score", key: "score", width: 12 },
-      { header: "Duration", key: "duration", width: 12 },
-      { header: "Date", key: "datetime", width: 15 },
-    ];
-
-    finalResults.forEach((item) => {
-      worksheet.addRow({
-        rank: item.rank,
-        name: item.student.name,
-        code: item.student.code,
-        course: item.student.course,
-        year: item.student.year,
-        college: item.student.college,
-        phone: item.student.mobile,
-        score: `${item.marks}/${item.total}`,
-        duration: item.duration,
-        datetime: new Date(item.createdAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
-      });
+    const lines = [headers.join(",")];
+    finalResults.forEach((item, i) => {
+      lines.push([
+        item.rank || (i + 1),
+        escape(item.student?.name),
+        item.student?.code || "",
+        escape(item.student?.course),
+        escape(item.student?.year),
+        escape(item.student?.college),
+        item.student?.mobile || "",
+        `${item.marks}/${item.total}`,
+        item.duration || "",
+        new Date(item.createdAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
+      ].join(","));
     });
 
-    worksheet.getRow(1).font = { bold: true };
+    const csv = "\uFEFF" + lines.join("\n");
 
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", "attachment; filename=assessment-results.xlsx");
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", "attachment; filename=assessment-results.csv");
+    res.setHeader("Content-Length", Buffer.byteLength(csv, "utf8"));
+    return res.send(csv);
 
-    await workbook.xlsx.write(res);
-    res.end();
   } catch (error) {
     console.error("EXCEL DOWNLOAD ERROR:", error);
-    return res.status(500).json({ success: false, message: "Failed to download excel", error: error.message });
+    return res.status(500).json({ success: false, message: "Failed to download", error: error.message });
   }
 };
