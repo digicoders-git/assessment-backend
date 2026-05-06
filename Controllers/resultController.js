@@ -668,7 +668,7 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
       },
     });
 
-    pipeline.push({ $sort: { "firstSubmission.rank": 1 } });
+    pipeline.push({ $sort: { "firstSubmission.marks": -1, "firstSubmission.createdAt": 1 } });
 
     const results = await resultModel.aggregate(pipeline, { allowDiskUse: true });
     const finalResults = results.map((r) => r.firstSubmission).filter(Boolean);
