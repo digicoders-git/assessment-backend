@@ -668,10 +668,18 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
       },
     });
 
-    pipeline.push({ $sort: { "firstSubmission.marks": -1, "firstSubmission.createdAt": 1 } });
-
     const results = await resultModel.aggregate(pipeline, { allowDiskUse: true });
-    const finalResults = results.map((r) => r.firstSubmission).filter(Boolean);
+
+    const durationToSec = (d) => {
+      if (!d) return 99999;
+      const p = d.split(':').map(Number);
+      return p.length === 2 ? p[0] * 60 + p[1] : p[0] * 3600 + p[1] * 60 + (p[2] || 0);
+    };
+
+    const finalResults = results
+      .map((r) => r.firstSubmission)
+      .filter(Boolean)
+      .sort((a, b) => b.marks - a.marks || durationToSec(a.duration) - durationToSec(b.duration));
 
     // Build CSV in memory (much faster than ExcelJS for large data)
     const headers = ["Rank","Name","Code","Course","Year","College","Phone","Score","Duration","Date"];
