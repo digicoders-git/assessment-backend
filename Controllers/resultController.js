@@ -680,7 +680,7 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
     const lines = [headers.join(",")];
     finalResults.forEach((item, i) => {
       lines.push([
-        item.rank || (i + 1),
+        i + 1,
         escape(item.student?.name),
         item.student?.code || "",
         escape(item.student?.course),
