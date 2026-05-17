@@ -113,11 +113,8 @@ export const getAssesmentByCode = async (req, res) => {
 
     if (course && year) {
       const hasCourseYearGroups = assesment.courseYearGroups && assesment.courseYearGroups.length > 0;
-      console.log(`[DEBUG] course=${course} year=${year} hasCourseYearGroups=${hasCourseYearGroups}`);
+
       if (hasCourseYearGroups) {
-        assesment.courseYearGroups.forEach((g, i) => {
-          console.log(`[DEBUG] group[${i}] courseId=${g.course?._id} courseName=${g.course?.course} yearId=${g.year?._id} yearName=${g.year?.academicYear} qCount=${g.questionIds?.length}`);
-        });
         // Try to find matching course+year group
         const matchingGroup = assesment.courseYearGroups.find(g => {
           const gCourseId = g.course?._id?.toString() || g.course?.toString() || '';
