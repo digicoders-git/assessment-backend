@@ -200,6 +200,30 @@ export const importQuestionsFromExcel = async (req, res) => {
   }
 };
 
+export const bulkUpdateQuestionsCourseYear = async (req, res) => {
+  try {
+    const { topicId, courseId, yearId, filterCourseId, filterYearId } = req.body;
+
+    if (!topicId || !courseId || !yearId) {
+      return res.status(400).json({ success: false, message: "topicId, courseId and yearId are required" });
+    }
+
+    const filter = { topic: topicId };
+    if (filterCourseId) filter.course = filterCourseId;
+    if (filterYearId) filter.year = filterYearId;
+
+    const result = await questionModel.updateMany(filter, { course: courseId, year: yearId });
+
+    return res.status(200).json({
+      success: true,
+      message: `${result.modifiedCount} questions updated successfully`,
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const exportQuestionsToExcel = async (req, res) => {
   try {
     const { id } = req.params;

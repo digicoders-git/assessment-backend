@@ -140,7 +140,8 @@ export const getAssesmentByCode = async (req, res) => {
           const generalQuestions = assesment.questionIds.filter(
             q => !groupedIdSet.has(q._id?.toString() || q.toString())
           );
-          filteredQuestionIds = generalQuestions;
+          // If general questions exist use them, else fallback to all questions
+          filteredQuestionIds = generalQuestions.length > 0 ? generalQuestions : assesment.questionIds;
         }
       }
       // If no courseYearGroups at all - return all flat questionIds (general mode)
