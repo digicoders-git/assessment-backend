@@ -1,6 +1,11 @@
 import nodemailer from 'nodemailer';
 
 export const sendOtpEmail = async (toEmail, otp, userName, locationInfo = {}, isUserLogin = false) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`\n[DEV] OTP Email skipped | To: ${toEmail} | OTP: ${otp} | User: ${userName}\n`);
+    return;
+  }
+
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT),
@@ -47,11 +52,6 @@ export const sendOtpEmail = async (toEmail, otp, userName, locationInfo = {}, is
        ${locationBlock}
        <p style="color:#718096;font-size:13px;">If you did not request this, please ignore this email.</p>`;
 
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`\n[DEV] OTP Email skipped\nTo: ${toEmail}\nOTP: ${otp}\nUser: ${userName}\n`);
-    return;
-  }
-
   try {
     await transporter.sendMail({
       from: `"DigiCoders Assessment Portal" <${process.env.SMTP_USER}>`,
@@ -73,6 +73,11 @@ export const sendOtpEmail = async (toEmail, otp, userName, locationInfo = {}, is
 };
 
 export const sendDownloadOtpEmail = async (toEmail, otp, userName, locationInfo = {}) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`\n[DEV] Download OTP Email skipped | To: ${toEmail} | OTP: ${otp} | User: ${userName}\n`);
+    return;
+  }
+
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT),
@@ -99,11 +104,6 @@ export const sendDownloadOtpEmail = async (toEmail, otp, userName, locationInfo 
       </table>
     </div>
   `;
-
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`\n[DEV] Download OTP Email skipped\nTo: ${toEmail}\nOTP: ${otp}\nUser: ${userName}\n`);
-    return;
-  }
 
   try {
     await transporter.sendMail({
