@@ -140,11 +140,17 @@ export const getAssesmentByCode = async (req, res) => {
           const generalQuestions = assesment.questionIds.filter(
             q => !groupedIdSet.has(q._id?.toString() || q.toString())
           );
-          // If general questions exist use them, else fallback to all questions
-          filteredQuestionIds = generalQuestions.length > 0 ? generalQuestions : assesment.questionIds;
+          filteredQuestionIds = generalQuestions;
         }
       }
       // If no courseYearGroups at all - return all flat questionIds (general mode)
+    }
+
+    if (!filteredQuestionIds || filteredQuestionIds.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No questions assigned for your course and year. Please contact admin."
+      });
     }
 
     const responseData = {
