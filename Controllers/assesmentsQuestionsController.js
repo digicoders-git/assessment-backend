@@ -147,10 +147,14 @@ export const getAssesmentByCode = async (req, res) => {
     }
 
     if (!filteredQuestionIds || filteredQuestionIds.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "No questions assigned for your course and year. Please contact admin."
-      });
+      // Only return 404 if course+year was specified (eligibility check)
+      // If no course+year, return success with empty (for assessment info fetch)
+      if (course && year) {
+        return res.status(404).json({
+          success: false,
+          message: "No questions assigned for your course and year. Please contact admin."
+        });
+      }
     }
 
     const responseData = {
