@@ -131,16 +131,11 @@ export const getAssesmentByCode = async (req, res) => {
           // Found specific group for this course+year
           filteredQuestionIds = matchingGroup.questionIds;
         } else {
-          // No specific group - return general questions (not in any group)
-          const groupedIdSet = new Set(
-            assesment.courseYearGroups.flatMap(g =>
-              g.questionIds.map(q => q._id?.toString() || q.toString())
-            )
-          );
-          const generalQuestions = assesment.questionIds.filter(
-            q => !groupedIdSet.has(q._id?.toString() || q.toString())
-          );
-          filteredQuestionIds = generalQuestions;
+          // No specific group found for this course+year - not eligible
+          return res.status(404).json({
+            success: false,
+            message: "No questions assigned for your course and year. Please contact admin."
+          });
         }
       }
       // If no courseYearGroups at all - return all flat questionIds (general mode)
