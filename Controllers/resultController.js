@@ -224,16 +224,13 @@ export const getResultsByAssessmentId = async (req, res) => {
     basePipeline.push({
       $group: {
         _id: "$student.mobile",
-        firstMarks: { $first: "$marks" },
-        firstDuration: { $first: "$duration" },
         results: { $push: "$$ROOT" }
       }
     });
+
     basePipeline.push({
       $project: {
         firstSubmission: { $arrayElemAt: ["$results", 0] },
-        firstMarks: 1,
-        firstDuration: 1,
         reattempt: {
           $cond: [
             { $gt: [{ $size: "$results" }, 1] },
@@ -244,128 +241,7 @@ export const getResultsByAssessmentId = async (req, res) => {
       }
     });
 
-    // Safely convert duration "mm:ss" or "hh:mm:ss" to durationSeconds for global sorting
-    basePipeline.push({
-      $addFields: {
-        durationSeconds: {
-          $let: {
-            vars: {
-              parts: { $split: [{ $ifNull: ["$firstDuration", "0:0"] }, ":"] }
-            },
-            in: {
-              $cond: {
-                if: { $eq: [{ $size: "$$parts" }, 3] },
-                then: {
-                  $add: [
-                    {
-                      $multiply: [
-                        {
-                          $convert: {
-                            input: { $arrayElemAt: ["$$parts", 0] },
-                            to: "int",
-                            onError: 0,
-                            onNull: 0
-                          }
-                        },
-                        3600
-                      ]
-                    },
-                    {
-                      $multiply: [
-                        {
-                          $convert: {
-                            input: { $arrayElemAt: ["$$parts", 1] },
-                            to: "int",
-                            onError: 0,
-                            onNull: 0
-                          }
-                        },
-                        60
-                      ]
-                    },
-                    {
-                      $convert: {
-                        input: { $arrayElemAt: ["$$parts", 2] },
-                        to: "int",
-                        onError: 0,
-                        onNull: 0
-                      }
-                    }
-                  ]
-                },
-                else: {
-                  $add: [
-                    {
-                      $multiply: [
-                        {
-                          $convert: {
-                            input: { $arrayElemAt: ["$$parts", 0] },
-                            to: "int",
-                            onError: 0,
-                            onNull: 0
-                          }
-                        },
-                        60
-                      ]
-                    },
-                    {
-                      $convert: {
-                        input: { $arrayElemAt: ["$$parts", 1] },
-                        to: "int",
-                        onError: 0,
-                        onNull: 0
-                      }
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    });
-
-    // Global sort by score descending and duration ascending
-    basePipeline.push({
-      $sort: { firstMarks: -1, durationSeconds: 1 }
-    });
-
-    // Get total count
-    const countPipeline = [...basePipeline, { $count: "total" }];
-    const countResult = await resultModel.aggregate(countPipeline);
-    const totalCount = countResult[0]?.total || 0;
-
-    // Total raw submissions - unique = reattempts
-    const rawCountPipeline = [
-      { $lookup: { from: "assesmentquestions", localField: "assesmentQuestions", foreignField: "_id", as: "aq" } },
-      { $unwind: "$aq" },
-      { $match: { "aq.assesmentId": new mongoose.Types.ObjectId(id) } },
-      { $count: "total" }
-    ];
-    const rawCountResult = await resultModel.aggregate(rawCountPipeline);
-    const totalRawSubmissions = rawCountResult[0]?.total || 0;
-    const totalReattempts = totalRawSubmissions - totalCount;
-
-    // Get paginated data
-    const dataPipeline = [
-      ...basePipeline,
-      { $skip: skip },
-      { $limit: parseInt(limit) }
-    ];
-
-    const allData = await resultModel.aggregate(dataPipeline);
-
-    // reattemptTotal from countPipeline difference
-    const reattemptTotal = allData.reduce((sum, item) => sum + (item.reattempt?.length || 0), 0);
-    console.log(`[DEBUG] allData length: ${allData.length}, reattemptTotal: ${reattemptTotal}`);
-
-    const durationToSeconds = (duration) => {
-      if (!duration) return 0;
-      const parts = duration.split(':').map(Number);
-      if (parts.length === 2) return parts[0] * 60 + parts[1];
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-      return Number(duration) || 0;
-    };
+    const allData = await resultModel.aggregate(basePipeline);
 
     const firstSubmission = [];
     const reattempt = [];
@@ -375,10 +251,35 @@ export const getResultsByAssessmentId = async (req, res) => {
       if (item.reattempt?.length > 0) reattempt.push(...item.reattempt);
     });
 
-    // Rank based on position in sorted results (page-aware)
-    firstSubmission.forEach((item, index) => {
-      item.rank = skip + index + 1;
+    const durationToSeconds = (duration) => {
+      if (!duration || duration === "N/A") return 999999;
+      const parts = String(duration).split(':').map(Number);
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      return Number(duration) || 999999;
+    };
+
+    // Sort globally by score descending and duration ascending
+    firstSubmission.sort((a, b) => {
+      const marksA = Number(a.marks) || 0;
+      const marksB = Number(b.marks) || 0;
+      if (marksB !== marksA) {
+        return marksB - marksA;
+      }
+      return durationToSeconds(a.duration) - durationToSeconds(b.duration);
     });
+
+    // Assign global ranks
+    firstSubmission.forEach((item, index) => {
+      item.rank = index + 1;
+    });
+
+    const totalCount = firstSubmission.length;
+    const totalReattempts = reattempt.length;
+
+    // Paginate in memory
+    const paginatedFirstSubmission = firstSubmission.slice(skip, skip + parseInt(limit));
+    const paginatedReattempts = reattempt.slice(skip, skip + parseInt(limit));
 
     const assessmentName = firstSubmission?.[0]?.assessment?.assessmentName || null;
     const certificateName = firstSubmission?.[0]?.assessment?.certificateName || null;
@@ -392,8 +293,8 @@ export const getResultsByAssessmentId = async (req, res) => {
       success: true,
       assessmentName,
       certificateName,
-      firstSubmission: firstSubmission.map(clean),
-      reattempt: reattempt.map(clean),
+      firstSubmission: paginatedFirstSubmission.map(clean),
+      reattempt: paginatedReattempts.map(clean),
       reattemptTotal: totalReattempts,
       pagination: {
         total: totalCount,
