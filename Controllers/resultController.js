@@ -217,6 +217,9 @@ export const getResultsByAssessmentId = async (req, res) => {
     }
     if (Object.keys(matchFilter).length) basePipeline.push({ $match: matchFilter });
 
+    // Sort by createdAt ascending to guarantee first attempt is at index 0
+    basePipeline.push({ $sort: { createdAt: 1 } });
+
     // Group by mobile
     basePipeline.push({
       $group: {
@@ -239,6 +242,92 @@ export const getResultsByAssessmentId = async (req, res) => {
           ]
         }
       }
+    });
+
+    // Safely convert duration "mm:ss" or "hh:mm:ss" to durationSeconds for global sorting
+    basePipeline.push({
+      $addFields: {
+        durationSeconds: {
+          $let: {
+            vars: {
+              parts: { $split: [{ $ifNull: ["$firstDuration", "0:0"] }, ":"] }
+            },
+            in: {
+              $cond: {
+                if: { $eq: [{ $size: "$$parts" }, 3] },
+                then: {
+                  $add: [
+                    {
+                      $multiply: [
+                        {
+                          $convert: {
+                            input: { $arrayElemAt: ["$$parts", 0] },
+                            to: "int",
+                            onError: 0,
+                            onNull: 0
+                          }
+                        },
+                        3600
+                      ]
+                    },
+                    {
+                      $multiply: [
+                        {
+                          $convert: {
+                            input: { $arrayElemAt: ["$$parts", 1] },
+                            to: "int",
+                            onError: 0,
+                            onNull: 0
+                          }
+                        },
+                        60
+                      ]
+                    },
+                    {
+                      $convert: {
+                        input: { $arrayElemAt: ["$$parts", 2] },
+                        to: "int",
+                        onError: 0,
+                        onNull: 0
+                      }
+                    }
+                  ]
+                },
+                else: {
+                  $add: [
+                    {
+                      $multiply: [
+                        {
+                          $convert: {
+                            input: { $arrayElemAt: ["$$parts", 0] },
+                            to: "int",
+                            onError: 0,
+                            onNull: 0
+                          }
+                        },
+                        60
+                      ]
+                    },
+                    {
+                      $convert: {
+                        input: { $arrayElemAt: ["$$parts", 1] },
+                        to: "int",
+                        onError: 0,
+                        onNull: 0
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Global sort by score descending and duration ascending
+    basePipeline.push({
+      $sort: { firstMarks: -1, durationSeconds: 1 }
     });
 
     // Get total count
