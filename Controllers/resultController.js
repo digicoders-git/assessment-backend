@@ -168,26 +168,21 @@ export const getResultsByAssessmentId = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid assessmentId" });
     }
 
+    const aqDocs = await mongoose.model("assesmentQuestion").find({ assesmentId: id }, "_id");
+    const aqIds = aqDocs.map(d => d._id);
+
     const { college, year, course, search = "", page = 1, limit = 10 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // Base pipeline - group by mobile to get first + reattempt
+    // Base pipeline - match by assesmentQuestions directly using index!
     const basePipeline = [
-      {
-        $lookup: {
-          from: "assesmentquestions",
-          localField: "assesmentQuestions",
-          foreignField: "_id",
-          as: "assesmentQuestions"
-        }
-      },
-      { $unwind: "$assesmentQuestions" },
-      { $match: { "assesmentQuestions.assesmentId": new mongoose.Types.ObjectId(id) } },
+      { $match: { assesmentQuestions: { $in: aqIds } } },
       {
         $lookup: {
           from: "assessments",
-          localField: "assesmentQuestions.assesmentId",
-          foreignField: "_id",
+          pipeline: [
+            { $match: { _id: new mongoose.Types.ObjectId(id) } }
+          ],
           as: "assessment"
         }
       },
@@ -217,9 +212,6 @@ export const getResultsByAssessmentId = async (req, res) => {
     }
     if (Object.keys(matchFilter).length) basePipeline.push({ $match: matchFilter });
 
-    // Sort by createdAt ascending to guarantee first attempt is at index 0
-    basePipeline.push({ $sort: { createdAt: 1 } });
-
     // Group by mobile
     basePipeline.push({
       $group: {
@@ -230,25 +222,25 @@ export const getResultsByAssessmentId = async (req, res) => {
 
     basePipeline.push({
       $project: {
-        firstSubmission: { $arrayElemAt: ["$results", 0] },
-        reattempt: {
-          $cond: [
-            { $gt: [{ $size: "$results" }, 1] },
-            { $slice: ["$results", 1, { $size: "$results" }] },
-            []
-          ]
-        }
+        results: 1
       }
     });
 
-    const allData = await resultModel.aggregate(basePipeline);
+    // Native query without any MongoDB sorting - completely immune to memory limit errors!
+    const allData = await resultModel.collection.aggregate(basePipeline).toArray();
 
     const firstSubmission = [];
     const reattempt = [];
 
     allData.forEach(item => {
-      if (item.firstSubmission) firstSubmission.push(item.firstSubmission);
-      if (item.reattempt?.length > 0) reattempt.push(...item.reattempt);
+      if (item.results && item.results.length > 0) {
+        // Sort chronologically in JS
+        item.results.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        firstSubmission.push(item.results[0]);
+        if (item.results.length > 1) {
+          reattempt.push(...item.results.slice(1));
+        }
+      }
     });
 
     const durationToSeconds = (duration) => {
@@ -308,7 +300,6 @@ export const getResultsByAssessmentId = async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
   }
 };
-
 
 // get by number;
 
