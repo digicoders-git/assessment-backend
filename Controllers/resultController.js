@@ -198,11 +198,28 @@ export const getResultsByAssessmentId = async (req, res) => {
       { $unwind: "$student" }
     ];
 
+    const escapeRegExp = (string) => {
+      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    };
+
     // Apply filters
     const matchFilter = {};
     if (college && college !== "all") matchFilter["student.college"] = { $regex: college, $options: "i" };
-    if (year && year !== "all") matchFilter["student.year"] = { $regex: year, $options: "i" };
-    if (course && course !== "all") matchFilter["student.course"] = { $regex: course, $options: "i" };
+    
+    if (year && year !== "all") {
+      const yearPattern = String(year).split(",").map(y => y.trim()).filter(Boolean).map(escapeRegExp).join("|");
+      if (yearPattern) {
+        matchFilter["student.year"] = { $regex: yearPattern, $options: "i" };
+      }
+    }
+    
+    if (course && course !== "all") {
+      const coursePattern = String(course).split(",").map(c => c.trim()).filter(Boolean).map(escapeRegExp).join("|");
+      if (coursePattern) {
+        matchFilter["student.course"] = { $regex: coursePattern, $options: "i" };
+      }
+    }
+
     if (search && search.trim()) {
       const s = search.trim();
       const orConds = [{ "student.name": { $regex: s, $options: "i" } }];
@@ -613,10 +630,27 @@ export const downloadAssessmentResultsExcel = async (req, res) => {
       { $unwind: "$student" },
     ];
 
+    const escapeRegExp = (string) => {
+      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    };
+
     const studentMatch = {};
     if (college && college !== "all") studentMatch["student.college"] = { $regex: college, $options: "i" };
-    if (year && year !== "all") studentMatch["student.year"] = { $regex: year, $options: "i" };
-    if (course && course !== "all") studentMatch["student.course"] = { $regex: course, $options: "i" };
+    
+    if (year && year !== "all") {
+      const yearPattern = String(year).split(",").map(y => y.trim()).filter(Boolean).map(escapeRegExp).join("|");
+      if (yearPattern) {
+        studentMatch["student.year"] = { $regex: yearPattern, $options: "i" };
+      }
+    }
+    
+    if (course && course !== "all") {
+      const coursePattern = String(course).split(",").map(c => c.trim()).filter(Boolean).map(escapeRegExp).join("|");
+      if (coursePattern) {
+        studentMatch["student.course"] = { $regex: coursePattern, $options: "i" };
+      }
+    }
+
     if (search && search.trim()) {
       const orConditions = [{ "student.name": { $regex: search, $options: "i" } }];
       const digits = search.replace(/\D/g, "");
