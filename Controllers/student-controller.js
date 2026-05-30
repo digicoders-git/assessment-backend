@@ -3,6 +3,7 @@ import assessmentModel from "../Models/assesmentModel.js";
 import collegeModel from "../Models/collegeModel.js";
 import courseModel from "../Models/courseModel.js";
 import studentModel from "../Models/studentModel.js";
+import remarkModel from "../Models/remarkModel.js";
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 
@@ -241,9 +242,41 @@ export const getAllStudent = async (req, res) => {
 
     const students = await studentModel.aggregate(pipeline);
 
+    // Fetch and attach remarks for the student IDs
+    const studentIds = students.map(s => s._id);
+    const allRemarks = await remarkModel.find({ student: { $in: studentIds } })
+      .populate("admin", "userName")
+      .sort({ createdAt: -1 });
+
+    const remarksByStudent = {};
+    allRemarks.forEach(rem => {
+      const sId = String(rem.student);
+      if (!remarksByStudent[sId]) {
+        remarksByStudent[sId] = [];
+      }
+      remarksByStudent[sId].push({
+        _id: rem._id,
+        text: rem.text,
+        status: rem.status,
+        adminName: rem.admin?.userName || "N/A",
+        createdAt: rem.createdAt
+      });
+    });
+
+    const studentsWithRemarks = students.map(s => {
+      const sId = String(s._id);
+      const studentRemarks = remarksByStudent[sId] || [];
+      return {
+        ...s,
+        remarks: studentRemarks,
+        remarksCount: studentRemarks.length,
+        latestRemark: studentRemarks[0] || null
+      };
+    });
+
     return res.status(200).json({
       success: true,
-      students,
+      students: studentsWithRemarks,
       pagination: {
         page,
         limit,
@@ -367,9 +400,41 @@ export const getStudentByAssesmet = async (req, res) => {
 
     const students = await studentModel.aggregate(pipeline);
 
+    // Fetch and attach remarks for the student IDs
+    const studentIds = students.map(s => s._id);
+    const allRemarks = await remarkModel.find({ student: { $in: studentIds } })
+      .populate("admin", "userName")
+      .sort({ createdAt: -1 });
+
+    const remarksByStudent = {};
+    allRemarks.forEach(rem => {
+      const sId = String(rem.student);
+      if (!remarksByStudent[sId]) {
+        remarksByStudent[sId] = [];
+      }
+      remarksByStudent[sId].push({
+        _id: rem._id,
+        text: rem.text,
+        status: rem.status,
+        adminName: rem.admin?.userName || "N/A",
+        createdAt: rem.createdAt
+      });
+    });
+
+    const studentsWithRemarks = students.map(s => {
+      const sId = String(s._id);
+      const studentRemarks = remarksByStudent[sId] || [];
+      return {
+        ...s,
+        remarks: studentRemarks,
+        remarksCount: studentRemarks.length,
+        latestRemark: studentRemarks[0] || null
+      };
+    });
+
     return res.status(200).json({
       success: true,
-      students,
+      students: studentsWithRemarks,
       pagination: {
         page,
         limit,

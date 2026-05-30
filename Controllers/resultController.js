@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import resultModel from "../Models/resultModel.js";
 import studentModel from "../Models/studentModel.js";
+import remarkModel from "../Models/remarkModel.js";
 import { toKolkataTime } from "../utils/timezoneHelper.js";
 import ExcelJS from "exceljs";
 
@@ -290,11 +291,40 @@ export const getResultsByAssessmentId = async (req, res) => {
     const paginatedFirstSubmission = firstSubmission.slice(skip, skip + parseInt(limit));
     const paginatedReattempts = reattempt.slice(skip, skip + parseInt(limit));
 
+    // Fetch and attach remarks for the paginated subset of results
+    const paginatedFirstIds = paginatedFirstSubmission.map(r => r._id);
+    const paginatedReattemptIds = paginatedReattempts.map(r => r._id);
+    const allResultIds = [...paginatedFirstIds, ...paginatedReattemptIds];
+
+    const allRemarks = await remarkModel.find({ result: { $in: allResultIds } })
+      .populate("admin", "userName")
+      .sort({ createdAt: -1 });
+
+    // Group remarks by result ID in JS
+    const remarksByResult = {};
+    allRemarks.forEach(rem => {
+      const rId = String(rem.result);
+      if (!remarksByResult[rId]) {
+        remarksByResult[rId] = [];
+      }
+      remarksByResult[rId].push({
+        _id: rem._id,
+        text: rem.text,
+        status: rem.status,
+        adminName: rem.admin?.userName || "N/A",
+        createdAt: rem.createdAt
+      });
+    });
+
     const assessmentName = firstSubmission?.[0]?.assessment?.assessmentName || null;
     const certificateName = firstSubmission?.[0]?.assessment?.certificateName || null;
 
     const clean = doc => {
       const { assesmentQuestions, assessment, answers, questions, topics, ...rest } = doc;
+      const rId = String(doc._id);
+      rest.remarks = remarksByResult[rId] || [];
+      rest.remarksCount = rest.remarks.length;
+      rest.latestRemark = rest.remarks[0] || null;
       return rest;
     };
 
