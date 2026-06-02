@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer';
 
 export const sendOtpEmail = async (toEmail, otp, userName, locationInfo = {}, isUserLogin = false) => {
   if (process.env.NODE_ENV === 'development') {
-    console.log(`\n[DEV] OTP Email skipped | To: ${toEmail} | OTP: ${otp} | User: ${userName}\n`);
+    console.log(`\n[DEV] OTP Email skipped | To: ${toEmail} | OTP: [HIDDEN] | User: ${userName}\n`);
     return;
   }
 
@@ -74,7 +74,7 @@ export const sendOtpEmail = async (toEmail, otp, userName, locationInfo = {}, is
 
 export const sendDownloadOtpEmail = async (toEmail, otp, userName, locationInfo = {}) => {
   if (process.env.NODE_ENV === 'development') {
-    console.log(`\n[DEV] Download OTP Email skipped | To: ${toEmail} | OTP: ${otp} | User: ${userName}\n`);
+    console.log(`\n[DEV] Download OTP Email skipped | To: ${toEmail} | OTP: [HIDDEN] | User: ${userName}\n`);
     return;
   }
 

@@ -61,7 +61,6 @@ export const adminLogin = async (req, res) => {
     }
     const otp = generateOtp();
     otpStore['admin'] = { otp, expiresAt: Date.now() + 5 * 60 * 1000, adminId: admin._id };
-    console.log(`🔐 Admin Login OTP: ${otp}`);
     const locationInfo = { latitude, longitude, address, ip };
     try {
       await sendOtpEmail(process.env.SMTP_FROM, otp, admin.userName, locationInfo);
