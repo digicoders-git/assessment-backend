@@ -6,6 +6,12 @@ export const sendOtpEmail = async (toEmail, otp, userName, locationInfo = {}, is
     return;
   }
 
+  if (isUserLogin) {
+    console.log(`✉️ [LIVE] User Login Alert | To: ${toEmail} | Message: ${otp}`);
+  } else {
+    console.log(`🔑 [LIVE] Login OTP | To: ${toEmail} | OTP: ${otp}`);
+  }
+
   const { latitude, longitude, address, ip } = locationInfo;
   const mapsLink = latitude && longitude
     ? `https://www.google.com/maps?q=${latitude},${longitude}`
@@ -75,6 +81,8 @@ export const sendDownloadOtpEmail = async (toEmail, otp, userName, locationInfo 
     console.log(`\n[DEV] Download OTP Email skipped | To: ${toEmail} | OTP: ${otp} | User: ${userName}\n`);
     return;
   }
+
+  console.log(`🔑 [LIVE] Download OTP | To: ${toEmail} | OTP: ${otp}`);
 
   const { latitude, longitude, address, ip } = locationInfo;
   const mapsLink = latitude && longitude ? `https://www.google.com/maps?q=${latitude},${longitude}` : null;
