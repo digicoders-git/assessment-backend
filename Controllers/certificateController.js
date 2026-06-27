@@ -357,6 +357,109 @@ export const toggleCertificateStatus = async (req, res) => {
   }
 };
 
+/* DUPLICATE CERTIFICATE */
+export const duplicateCertificate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { certificateName } = req.body;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Original Certificate ID is required",
+      });
+    }
+
+    if (!certificateName) {
+      return res.status(400).json({
+        success: false,
+        message: "New Certificate Name is required",
+      });
+    }
+
+    // Check if name is already taken
+    const exists = await certificateModel.findOne({ certificateName });
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        message: "A certificate with this name already exists",
+      });
+    }
+
+    // Find original certificate
+    const original = await certificateModel.findById(id);
+    if (!original) {
+      return res.status(404).json({
+        success: false,
+        message: "Original certificate not found",
+      });
+    }
+
+    let newImageUrl = original.certificateImage;
+
+    // Duplicate image to avoid shared deletion side effects
+    if (newImageUrl) {
+      // Case 1: Local Image
+      if (newImageUrl.includes("/uploads/certificates/")) {
+        const parts = newImageUrl.split("/uploads/certificates/");
+        const originalFilename = parts[1];
+        if (originalFilename) {
+          const ext = path.extname(originalFilename);
+          const baseName = path.basename(originalFilename, ext);
+          const newFilename = `${baseName}-copy-${Date.now()}${ext}`;
+          
+          const srcPath = path.join(process.cwd(), "uploads", "certificates", originalFilename);
+          const destPath = path.join(process.cwd(), "uploads", "certificates", newFilename);
+          
+          if (fs.existsSync(srcPath)) {
+            fs.copyFileSync(srcPath, destPath);
+            const prefix = parts[0];
+            newImageUrl = `${prefix}/uploads/certificates/${newFilename}`;
+          }
+        }
+      }
+      // Case 2: Cloudinary Image
+      else if (newImageUrl.includes("cloudinary")) {
+        try {
+          const uploadRes = await cloudinary.uploader.upload(newImageUrl, {
+            folder: "certificates",
+          });
+          newImageUrl = uploadRes.secure_url;
+        } catch (cloudinaryErr) {
+          console.error("Cloudinary duplication failed, using original URL fallback:", cloudinaryErr);
+        }
+      }
+    }
+
+    // Clone configuration
+    const newCertificate = await certificateModel.create({
+      certificateName,
+      certificateImage: newImageUrl,
+      studentName: original.studentName,
+      assessmentName: original.assessmentName,
+      assessmentCode: original.assessmentCode,
+      collegeName: original.collegeName,
+      date: original.date,
+      height: original.height,
+      width: original.width,
+      status: true
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Certificate duplicated successfully",
+      certificate: newCertificate,
+    });
+  } catch (error) {
+    console.error("DUPLICATE CERTIFICATE ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+
 
 
 
