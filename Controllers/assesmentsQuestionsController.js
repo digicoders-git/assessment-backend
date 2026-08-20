@@ -155,13 +155,7 @@ export const getAssesmentByCode = async (req, res) => {
     const responseData = {
       ...assesment.toObject(),
       questionIds: filteredQuestionIds,
-      assesmentId: {
-        ...assesment.assesmentId.toObject(),
-        startDateTime: toKolkataTime(assesment.assesmentId.startDateTime),
-        endDateTime: toKolkataTime(assesment.assesmentId.endDateTime),
-        createdAt: toKolkataTime(assesment.assesmentId.createdAt),
-        updatedAt: toKolkataTime(assesment.assesmentId.updatedAt)
-      }
+      assesmentId: assesment.assesmentId.toObject()
     };
 
     return res.status(200).json({ success: true, data: responseData });
