@@ -30,13 +30,6 @@ export const studen_reg_without_contact = async (req, res) => {
       });
     }
 
-    if (!assessment.status) {
-      return res.status(400).json({
-        success: false,
-        message: "Assessment is inactive"
-      });
-    }
-
     const newStudent = await studentModel.create({ name, college, year, course, code });
 
     return res.status(201).json({
