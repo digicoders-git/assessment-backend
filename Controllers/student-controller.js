@@ -73,14 +73,6 @@ export const studen_reg = async (req, res) => {
     }
 
     // 🔹 check assessment status
-    if (!assessment.status) {
-      return res.status(400).json({
-        success: false,
-        message: "Assessment is inactive"
-      });
-    }
-
-
     // 🔹 create student
     const newStudent = await studentModel.create(req.body);
 
