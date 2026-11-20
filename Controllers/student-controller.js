@@ -736,10 +736,12 @@ export const downloadMultiAssessmentExcel = async (req, res) => {
       targetCodes = assessmentCodes.map(c => String(c).trim()).filter(Boolean);
     }
 
+    targetCodes = targetCodes.filter(c => c && c !== 'null' && c !== 'undefined');
+
     if (!targetCodes.length) {
       return res.status(400).json({
         success: false,
-        message: "No assessment codes specified"
+        message: "No valid assessment codes specified"
       });
     }
 
