@@ -4,6 +4,7 @@ import collegeModel from "../Models/collegeModel.js";
 import courseModel from "../Models/courseModel.js";
 import studentModel from "../Models/studentModel.js";
 import remarkModel from "../Models/remarkModel.js";
+import resultModel from "../Models/resultModel.js";
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 
@@ -708,3 +709,282 @@ export const downloadStudentsPDF = async (req, res) => {
 
 
 
+
+
+// =====================================================================
+// MULTI-ASSESSMENT / ALL COLLEGE WORKSHOPS EXCEL EXPORT
+// =====================================================================
+export const downloadMultiAssessmentExcel = async (req, res) => {
+  try {
+    let { assessmentCodes, allWorkshops } = req.body;
+
+    const workshopKeywords = [
+      /college/i, /polytechnic/i, /institute/i, /university/i, /workshop/i,
+      /campus/i, /fgiet/i, /mviet/i, /rec/i, /diet/i, /dit/i, /biet/i,
+      /iet/i, /sit/i, /kiet/i, /aktu/i, /bteup/i, /engineering/i, /degree/i
+    ];
+
+    let targetCodes = [];
+    if (allWorkshops) {
+      const allAsmts = await assessmentModel.find({}).lean();
+      const workshopAsmts = allAsmts.filter(a => {
+        const text = `${a.remark || ""} ${a.name || ""} ${a.topic || ""}`;
+        return workshopKeywords.some(kw => kw.test(text));
+      });
+      targetCodes = workshopAsmts.map(a => a.assesmentCode).filter(Boolean);
+    } else if (Array.isArray(assessmentCodes) && assessmentCodes.length > 0) {
+      targetCodes = assessmentCodes.map(c => String(c).trim()).filter(Boolean);
+    }
+
+    if (!targetCodes.length) {
+      return res.status(400).json({
+        success: false,
+        message: "No assessment codes specified"
+      });
+    }
+
+    // Fetch assessment details
+    const assessments = await assessmentModel.find({ assesmentCode: { $in: targetCodes } }).lean();
+    const asmtMap = new Map();
+    assessments.forEach(a => asmtMap.set(a.assesmentCode, a));
+
+    // Fetch all students for these assessments
+    const students = await studentModel.find({ code: { $in: targetCodes } }).sort({ createdAt: -1 }).lean();
+
+    // Group students by assessment code
+    const studentsByCode = new Map();
+    const studentIds = [];
+    targetCodes.forEach(code => studentsByCode.set(code, []));
+
+    students.forEach(s => {
+      studentIds.push(s._id);
+      if (studentsByCode.has(s.code)) {
+        studentsByCode.get(s.code).push(s);
+      }
+    });
+
+    // Fetch results
+    const results = await resultModel.find({ student: { $in: studentIds } }).lean();
+    const resultMap = new Map();
+    results.forEach(r => {
+      const key = `${String(r.student)}_${r.assessmentCode || ""}`;
+      resultMap.set(key, r);
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "The DigiCoders Assessment Portal";
+    workbook.created = new Date();
+
+    const usedSheetNames = new Set();
+    const getSafeSheetName = (code, label) => {
+      let clean = (code ? `${code}_` : "") + (label || "Sheet");
+      clean = clean.replace(/[*?:/\\\[\]]/g, "_").replace(/\s+/g, "_");
+      clean = clean.substring(0, 31);
+      let candidate = clean || "Sheet";
+      let counter = 1;
+      while (usedSheetNames.has(candidate.toLowerCase())) {
+        const suffix = `_${counter}`;
+        candidate = clean.substring(0, 31 - suffix.length) + suffix;
+        counter++;
+      }
+      usedSheetNames.add(candidate.toLowerCase());
+      return candidate;
+    };
+
+    const headerFill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF1E293B" }
+    };
+    const headerFont = {
+      name: "Calibri",
+      size: 11,
+      bold: true,
+      color: { argb: "FFFFFFFF" }
+    };
+    const centerAlign = { vertical: "middle", horizontal: "center" };
+
+    // 1. MASTER SUMMARY SHEET
+    const summarySheet = workbook.addWorksheet(getSafeSheetName("", "00_Master_Summary"));
+    summarySheet.views = [{ state: "frozen", ySplit: 1 }];
+    summarySheet.columns = [
+      { header: "S.No", key: "sno", width: 8 },
+      { header: "Assessment Code", key: "code", width: 18 },
+      { header: "Assessment Name", key: "name", width: 32 },
+      { header: "College / Remark", key: "remark", width: 38 },
+      { header: "Topic / Subject", key: "topic", width: 22 },
+      { header: "Total Registered", key: "totalStudents", width: 18 },
+      { header: "Tests Completed", key: "completed", width: 18 },
+      { header: "Status", key: "status", width: 12 },
+      { header: "Sheet Name", key: "sheetName", width: 32 }
+    ];
+
+    const summaryRows = [];
+
+    // 2. ALL STUDENTS CONSOLIDATED SHEET
+    const consolidatedSheet = workbook.addWorksheet(getSafeSheetName("", "All_Students_Consolidated"));
+    consolidatedSheet.views = [{ state: "frozen", ySplit: 1 }];
+    consolidatedSheet.columns = [
+      { header: "S.No", key: "sno", width: 8 },
+      { header: "Assessment Code", key: "code", width: 18 },
+      { header: "Assessment Name", key: "asmtName", width: 28 },
+      { header: "College / Workshop", key: "remark", width: 32 },
+      { header: "Student Name", key: "name", width: 26 },
+      { header: "Mobile", key: "mobile", width: 16 },
+      { header: "Email", key: "email", width: 28 },
+      { header: "Student College", key: "college", width: 30 },
+      { header: "Course", key: "course", width: 16 },
+      { header: "Year", key: "year", width: 12 },
+      { header: "Marks", key: "marks", width: 12 },
+      { header: "Correct", key: "correct", width: 12 },
+      { header: "Incorrect", key: "incorrect", width: 12 },
+      { header: "Status", key: "testStatus", width: 16 },
+      { header: "Registration Date", key: "regDate", width: 20 }
+    ];
+
+    let consolidatedIndex = 1;
+
+    // 3. INDIVIDUAL ASSESSMENT SHEETS
+    targetCodes.forEach((code, idx) => {
+      const asmt = asmtMap.get(code) || {};
+      const list = studentsByCode.get(code) || [];
+      const asmtName = asmt.name || "Assessment";
+      const asmtRemark = asmt.remark || "";
+      const label = asmtRemark ? asmtRemark.split(/[\s,]+/)[0] : asmtName.split(/[\s,]+/)[0];
+      const sheetName = getSafeSheetName(code, label);
+
+      let completedCount = 0;
+      const asmtSheet = workbook.addWorksheet(sheetName);
+      asmtSheet.views = [{ state: "frozen", ySplit: 1 }];
+      asmtSheet.columns = [
+        { header: "S.No", key: "sno", width: 8 },
+        { header: "Student Name", key: "name", width: 26 },
+        { header: "Mobile", key: "mobile", width: 16 },
+        { header: "Email", key: "email", width: 28 },
+        { header: "College", key: "college", width: 32 },
+        { header: "Course", key: "course", width: 16 },
+        { header: "Year", key: "year", width: 12 },
+        { header: "Assessment Code", key: "code", width: 18 },
+        { header: "Marks", key: "marks", width: 12 },
+        { header: "Correct", key: "correct", width: 12 },
+        { header: "Incorrect", key: "incorrect", width: 12 },
+        { header: "Result Status", key: "testStatus", width: 16 },
+        { header: "Registered At", key: "regDate", width: 20 }
+      ];
+
+      list.forEach((st, sIdx) => {
+        const resKey1 = `${String(st._id)}_${code}`;
+        const resKey2 = `${String(st._id)}_`;
+        const resItem = resultMap.get(resKey1) || resultMap.get(resKey2);
+        const hasCompleted = !!resItem;
+        if (hasCompleted) completedCount++;
+
+        const marksVal = hasCompleted ? (resItem.marks ?? "-") : "Not Attempted";
+        const correctVal = hasCompleted ? (resItem.correct ?? "-") : "-";
+        const incorrectVal = hasCompleted ? (resItem.incorrect ?? "-") : "-";
+        const statusVal = hasCompleted ? "Completed" : "Registered";
+        const dateStr = st.createdAt ? new Date(st.createdAt).toLocaleString("en-IN") : "";
+
+        asmtSheet.addRow({
+          sno: sIdx + 1,
+          name: st.name || "",
+          mobile: st.mobile || "",
+          email: st.email || "",
+          college: st.college || asmtRemark || "",
+          course: st.course || "",
+          year: st.year || "",
+          code: st.code || code,
+          marks: marksVal,
+          correct: correctVal,
+          incorrect: incorrectVal,
+          testStatus: statusVal,
+          regDate: dateStr
+        });
+
+        consolidatedSheet.addRow({
+          sno: consolidatedIndex++,
+          code: code,
+          asmtName: asmtName,
+          remark: asmtRemark,
+          name: st.name || "",
+          mobile: st.mobile || "",
+          email: st.email || "",
+          college: st.college || asmtRemark || "",
+          course: st.course || "",
+          year: st.year || "",
+          marks: marksVal,
+          correct: correctVal,
+          incorrect: incorrectVal,
+          testStatus: statusVal,
+          regDate: dateStr
+        });
+      });
+
+      // Format asmtSheet header
+      const headerRow = asmtSheet.getRow(1);
+      headerRow.height = 26;
+      headerRow.eachCell((cell) => {
+        cell.fill = headerFill;
+        cell.font = headerFont;
+        cell.alignment = centerAlign;
+      });
+
+      summaryRows.push({
+        sno: idx + 1,
+        code: code,
+        name: asmtName,
+        remark: asmtRemark,
+        topic: asmt.topic || "",
+        totalStudents: list.length,
+        completed: completedCount,
+        status: asmt.status ? "Active" : "Inactive",
+        sheetName: sheetName
+      });
+    });
+
+    // Populate Summary Sheet
+    summaryRows.forEach(row => summarySheet.addRow(row));
+
+    // Style summarySheet header
+    const summaryHeader = summarySheet.getRow(1);
+    summaryHeader.height = 28;
+    summaryHeader.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } };
+      cell.font = headerFont;
+      cell.alignment = centerAlign;
+    });
+
+    // Style consolidatedSheet header
+    const consolidatedHeader = consolidatedSheet.getRow(1);
+    consolidatedHeader.height = 28;
+    consolidatedHeader.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E3A8A" } };
+      cell.font = headerFont;
+      cell.alignment = centerAlign;
+    });
+
+    const fileName = allWorkshops
+      ? `All_College_Workshops_Export_${Date.now()}.xlsx`
+      : `Multi_Assessments_Export_${Date.now()}.xlsx`;
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${fileName}"`
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error("MULTI ASSESSMENT EXCEL ERROR:", error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: "Failed to generate multi-assessment Excel: " + error.message
+      });
+    }
+  }
+};
