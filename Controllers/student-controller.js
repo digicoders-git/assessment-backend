@@ -728,10 +728,10 @@ export const downloadMultiAssessmentExcel = async (req, res) => {
     if (allWorkshops) {
       const allAsmts = await assessmentModel.find({}).lean();
       const workshopAsmts = allAsmts.filter(a => {
-        const text = `${a.remark || ""} ${a.name || ""} ${a.topic || ""}`;
+        const text = `${a.remark || ""} ${a.assessmentName || a.name || ""} ${a.assessmentCode || a.assesmentCode || ""}`;
         return workshopKeywords.some(kw => kw.test(text));
       });
-      targetCodes = workshopAsmts.map(a => a.assesmentCode).filter(Boolean);
+      targetCodes = workshopAsmts.map(a => a.assessmentCode || a.assesmentCode).filter(Boolean);
     } else if (Array.isArray(assessmentCodes) && assessmentCodes.length > 0) {
       targetCodes = assessmentCodes.map(c => String(c).trim()).filter(Boolean);
     }
@@ -744,9 +744,17 @@ export const downloadMultiAssessmentExcel = async (req, res) => {
     }
 
     // Fetch assessment details
-    const assessments = await assessmentModel.find({ assesmentCode: { $in: targetCodes } }).lean();
+    const assessments = await assessmentModel.find({
+      $or: [
+        { assessmentCode: { $in: targetCodes } },
+        { assesmentCode: { $in: targetCodes } }
+      ]
+    }).lean();
     const asmtMap = new Map();
-    assessments.forEach(a => asmtMap.set(a.assesmentCode, a));
+    assessments.forEach(a => {
+      const code = a.assessmentCode || a.assesmentCode;
+      if (code) asmtMap.set(code, a);
+    });
 
     // Fetch all students for these assessments
     const students = await studentModel.find({ code: { $in: targetCodes } }).sort({ createdAt: -1 }).lean();
@@ -848,7 +856,7 @@ export const downloadMultiAssessmentExcel = async (req, res) => {
     targetCodes.forEach((code, idx) => {
       const asmt = asmtMap.get(code) || {};
       const list = studentsByCode.get(code) || [];
-      const asmtName = asmt.name || "Assessment";
+      const asmtName = asmt.assessmentName || asmt.name || "Assessment";
       const asmtRemark = asmt.remark || "";
       const label = asmtRemark ? asmtRemark.split(/[\s,]+/)[0] : asmtName.split(/[\s,]+/)[0];
       const sheetName = getSafeSheetName(code, label);
