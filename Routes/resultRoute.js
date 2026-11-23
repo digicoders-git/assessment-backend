@@ -14,6 +14,7 @@ const resultRouter = express.Router();
 resultRouter.post("/result", createResult);
 resultRouter.get("/result/:id", getResultsByAssessmentId);
 resultRouter.get("/result/mobile/:mobile", getResultsByMobile);
+resultRouter.get("/student-history/:mobile", getResultsByMobile);
 resultRouter.get("/result-single/:id", getResultsByStudent);
 resultRouter.get("/result-excel/:id", downloadAssessmentResultsExcel);
 resultRouter.get("/result-certificate/:studentId/:assesmentId?", generateCertificate);

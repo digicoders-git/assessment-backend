@@ -5,6 +5,8 @@ import remarkModel from "../Models/remarkModel.js";
 import assessmentModel from "../Models/assesmentModel.js";
 import certificateModel from "../Models/certificateModel.js";
 import assesmentQuestionIdModel from "../Models/assesmentQuestionsModel.js";
+import questionModel from "../Models/questionModel.js";
+import topicModel from "../Models/topic.js";
 import { toKolkataTime } from "../utils/timezoneHelper.js";
 import ExcelJS from "exceljs";
 import axios from "axios";
@@ -350,7 +352,7 @@ export const getResultsByAssessmentId = async (req, res) => {
   }
 };
 
-// get by number;
+// get by number (Student Assessment History)
 
 export const getResultsByMobile = async (req, res) => {
   try {
@@ -363,41 +365,88 @@ export const getResultsByMobile = async (req, res) => {
       });
     }
 
-    // 1️⃣ Find ALL students with same mobile
-    const students = await studentModel.find({ mobile });
+    // 1️⃣ Find ALL registrations with this mobile number (newest first)
+    const students = await studentModel.find({ mobile }).sort({ createdAt: -1 });
 
     if (!students || students.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "No students found with this mobile number"
+        message: "No student records found with this mobile number"
       });
     }
 
     // 2️⃣ Extract student IDs
     const studentIds = students.map(stu => stu._id);
 
-    // 3️⃣ Find ALL results + POPULATE assessmentName
+    // 3️⃣ Find ALL results + POPULATE details
     const results = await resultModel
       .find({ student: { $in: studentIds } })
       .populate("student")
       .populate({
         path: "assesmentQuestions",
         populate: {
-          path: "assesmentId",
-          select: "assessmentName"
+          path: "assesmentId"
         }
       })
       .populate("answers.question")
       .sort({ createdAt: -1 });
 
+    // Map results by studentId string
+    const resultMap = new Map();
+    results.forEach(r => {
+      const sId = r.student?._id ? r.student._id.toString() : r.student?.toString();
+      if (sId) resultMap.set(sId, r);
+    });
+
+    // Fetch assessment metadata for all unique assessment codes
+    const codes = [...new Set(students.map(s => s.code).filter(Boolean))];
+    const assessments = await assessmentModel.find({ assessmentCode: { $in: codes } });
+    const asmtMap = new Map();
+    assessments.forEach(a => asmtMap.set(a.assessmentCode, a));
+
+    const baseUrl = process.env.CERT_BASE_URL || "https://assessmentapinew.thedigicoders.com";
+
+    // Build comprehensive assessment history list
+    const history = students.map(stu => {
+      const resDoc = resultMap.get(stu._id.toString());
+      const asmt = asmtMap.get(stu.code);
+      const hasCert = Boolean(asmt?.generateCertificate || asmt?.certificateName || stu.certificate);
+      const isCertOnly = Boolean(asmt?.certificateOnly);
+
+      return {
+        studentId: stu._id,
+        assessmentId: asmt?._id || null,
+        assessmentCode: stu.code,
+        assessmentName: asmt?.assessmentName || stu.code || "Assessment",
+        college: stu.college,
+        course: stu.course,
+        year: stu.year,
+        date: stu.createdAt,
+        status: resDoc ? "Completed" : (isCertOnly ? "Certificate Available" : "Registered"),
+        marks: resDoc ? resDoc.marks : null,
+        total: resDoc ? resDoc.total : (asmt?.totalQuestions ?? null),
+        attempted: resDoc ? resDoc.attempted : null,
+        correct: resDoc ? resDoc.correct : null,
+        incorrect: resDoc ? resDoc.incorrect : null,
+        rank: resDoc ? resDoc.rank : null,
+        hasCertificate: hasCert,
+        certificateDownloadUrl: hasCert ? `${baseUrl}/admin/result-certificate/${stu._id}` : null,
+        studentCertificate: stu.certificate || null,
+        resultId: resDoc ? resDoc._id : null
+      };
+    });
+
     return res.status(200).json({
       success: true,
       totalStudents: students.length,
       totalResults: results.length,
+      totalAssessments: history.length,
+      history,
       results
     });
 
   } catch (error) {
+    console.error("GET RESULTS BY MOBILE ERROR:", error);
     return res.status(500).json({
       success: false,
       message: error.message
