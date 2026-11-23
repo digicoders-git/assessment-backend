@@ -17,6 +17,7 @@ resultRouter.get("/result/mobile/:mobile", getResultsByMobile);
 resultRouter.get("/student-history/:mobile", getResultsByMobile);
 resultRouter.get("/result-single/:id", getResultsByStudent);
 resultRouter.get("/result-excel/:id", downloadAssessmentResultsExcel);
-resultRouter.get("/result-certificate/:studentId/:assesmentId?", generateCertificate);
+resultRouter.get("/result-certificate/:studentId", generateCertificate);
+resultRouter.get("/result-certificate/:studentId/:assesmentId", generateCertificate);
 
 export default resultRouter;
