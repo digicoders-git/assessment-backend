@@ -2,13 +2,15 @@ import mongoose from "mongoose";
 import resultModel from "../Models/resultModel.js";
 import studentModel from "../Models/studentModel.js";
 import remarkModel from "../Models/remarkModel.js";
+import assessmentModel from "../Models/assesmentModel.js";
+import certificateModel from "../Models/certificateModel.js";
+import assesmentQuestionIdModel from "../Models/assesmentQuestionsModel.js";
 import { toKolkataTime } from "../utils/timezoneHelper.js";
 import ExcelJS from "exceljs";
-
-// import axios from "axios";
-// import { createCanvas, loadImage } from "canvas";
-// import studentModel from "../Models/studentModel.js";
-// import assessmentModel from "../Models/assesmentModel.js";
+import axios from "axios";
+import { createCanvas, loadImage } from "canvas";
+import fs from "fs";
+import path from "path";
 
 
 // create result
@@ -481,146 +483,189 @@ export const getResultsByStudent = async (req, res) => {
 
 
 
-// download certificate 
+// =====================================================================
+// SERVER-SIDE CERTIFICATE GENERATION & DIRECT DOWNLOAD
+// =====================================================================
+const drawText = (ctx, canvas, value, config) => {
+  if (!config || !value) return;
 
-// drawText helper in generateCertificate controller
-// const drawText = (ctx, canvas, value, config) => {
-//   if (!config || !value) return;
+  const canvasWidth = canvas.width;
+  const canvasHeight = canvas.height;
 
-//   const canvasWidth = canvas.width;
-//   const canvasHeight = canvas.height;
+  let fontSize = 20;
+  if (typeof config.fontSize === "string") fontSize = parseInt(config.fontSize, 10);
+  else if (typeof config.fontSize === "number") fontSize = config.fontSize;
 
-//   // FONT SIZE
-//   let fontSize = 20;
-//   if (typeof config.fontSize === "string") fontSize = parseInt(config.fontSize);
-//   else if (typeof config.fontSize === "number") fontSize = config.fontSize;
+  const weight = config.bold ? "700" : "400";
+  const style = config.italic ? "italic" : "normal";
+  const family = config.fontFamily || "sans-serif";
 
-//   // STYLE
-//   const weight = config.bold ? "700" : "400";
-//   const style = config.italic ? "italic" : "normal";
+  ctx.font = `${style} ${weight} ${fontSize}px "${family}", sans-serif`;
+  ctx.fillStyle = config.textColor || "#000";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
 
-//   // ✅ Font family with quotes for spaces
-//   ctx.font = `${style} ${weight} ${fontSize}px ${config.fontFamily.includes(" ") ? `"Monsieur La Doulaise"` : "Monsieur La Doulaise"}`;
-//   ctx.fillStyle = config.textColor || "#000";
-//   ctx.textAlign = "center";
-//   ctx.textBaseline = "middle";
+  const parsePos = (pos, base) => {
+    if (!pos) return base / 2;
+    const val = parseFloat(pos);
+    if (isNaN(val)) return base / 2;
+    return pos.toString().includes("%") ? (val / 100) * base : val;
+  };
 
-//   // X,Y positions
-//   let x = typeof config.horizontalPosition === "string" && config.horizontalPosition.includes("%")
-//     ? (parseFloat(config.horizontalPosition) / 100) * canvasWidth
-//     : Number(config.horizontalPosition);
+  const x = parsePos(config.horizontalPosition, canvasWidth);
+  const y = parsePos(config.verticalPosition, canvasHeight);
 
-//   let y = typeof config.verticalPosition === "string" && config.verticalPosition.includes("%")
-//     ? (parseFloat(config.verticalPosition) / 100) * canvasHeight
-//     : Number(config.verticalPosition);
+  ctx.fillText(value, x, y);
 
-//   if (isNaN(x) || isNaN(y)) return;
+  if (config.underline) {
+    const textWidth = ctx.measureText(value).width;
+    ctx.beginPath();
+    ctx.moveTo(x - textWidth / 2, y + fontSize / 2);
+    ctx.lineTo(x + textWidth / 2, y + fontSize / 2);
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+};
 
-//   ctx.fillText(value, x, y);
+export const generateCertificate = async (req, res) => {
+  try {
+    const { studentId, assesmentId } = req.params;
 
-//   // UNDERLINE
-//   if (config.underline) {
-//     const textWidth = ctx.measureText(value).width;
-//     ctx.beginPath();
-//     ctx.moveTo(x - textWidth / 2, y + fontSize / 2);
-//     ctx.lineTo(x + textWidth / 2, y + fontSize / 2);
-//     ctx.strokeStyle = ctx.fillStyle;
-//     ctx.lineWidth = 1.5;
-//     ctx.stroke();
-//   }
-// };
+    if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid studentId"
+      });
+    }
 
+    // 1. Fetch Student
+    const student = await studentModel.findById(studentId);
+    if (!student) {
+      return res.status(404).json({ success: false, message: "Student not found" });
+    }
 
-// export const generateCertificate = async (req, res) => {
-//   try {
-//     const { studentId, assesmentId } = req.params;
+    // If student already has an uploaded certificate URL, redirect directly
+    if (student.certificate && student.certificate.startsWith("http")) {
+      return res.redirect(student.certificate);
+    }
 
-//     if (
-//       !studentId ||
-//       !assesmentId ||
-//       !mongoose.Types.ObjectId.isValid(studentId) ||
-//       !mongoose.Types.ObjectId.isValid(assesmentId)
-//     ) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid studentId or assessmentId"
-//       });
-//     }
+    // 2. Fetch Assessment & Certificate Template
+    let assessment = null;
+    if (assesmentId && mongoose.Types.ObjectId.isValid(assesmentId)) {
+      assessment = await assessmentModel.findById(assesmentId).populate("certificateName");
+      if (!assessment) {
+        const aq = await mongoose.model("assesmentQuestion").findById(assesmentId).populate({
+          path: "assesmentId",
+          populate: { path: "certificateName" }
+        });
+        if (aq?.assesmentId) assessment = aq.assesmentId;
+      }
+    }
 
-//     // STUDENT
-//     const student = await studentModel.findById(studentId);
-//     if (!student) {
-//       return res.status(404).json({ success: false, message: "Student not found" });
-//     }
+    if (!assessment && student.code) {
+      assessment = await assessmentModel.findOne({
+        assessmentCode: student.code.toUpperCase()
+      }).populate("certificateName");
+    }
 
-//     // ASSESSMENT + CERTIFICATE
-//     const assessment = await assessmentModel
-//       .findById(assesmentId)
-//       .populate("certificateName");
+    if (!assessment || !assessment.certificateName) {
+      return res.status(404).json({
+        success: false,
+        message: "Certificate not linked with this assessment"
+      });
+    }
 
-//     if (!assessment || !assessment.certificateName) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Certificate not linked with assessment"
-//       });
-//     }
+    const certificate = assessment.certificateName;
 
-//     const certificate = assessment.certificateName;
+    if (!certificate.certificateImage || !certificate.studentName) {
+      return res.status(400).json({
+        success: false,
+        message: "Incomplete certificate configuration"
+      });
+    }
 
-//     if (!certificate.certificateImage || !certificate.studentName) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Incomplete certificate configuration"
-//       });
-//     }
+    // 3. Load Background Image
+    let bgBuffer;
+    const imgUrl = certificate.certificateImage;
 
-//     // FIRST TIME DATE
-//     if (!certificate.generatedAt) {
-//       certificate.generatedAt = new Date();
-//       await certificate.save();
-//     }
+    // Check if image is stored locally in uploads
+    if (imgUrl.includes("/uploads/certificates/")) {
+      const relPath = "uploads/certificates/" + imgUrl.split("/uploads/certificates/")[1];
+      const localPath = path.join(process.cwd(), relPath);
+      if (fs.existsSync(localPath)) {
+        bgBuffer = fs.readFileSync(localPath);
+      }
+    }
 
-//     const imageResponse = await axios.get(
-//       certificate.certificateImage,
-//       { responseType: "arraybuffer" }
-//     );
+    // Otherwise download via HTTP
+    if (!bgBuffer) {
+      const imageResponse = await axios.get(imgUrl, {
+        responseType: "arraybuffer",
+        timeout: 10000
+      });
+      bgBuffer = imageResponse.data;
+    }
 
-//     const bgImage = await loadImage(imageResponse.data);
-//     const canvas = createCanvas(bgImage.width, bgImage.height);
-//     const ctx = canvas.getContext("2d");
+    // 4. Render on Canvas
+    const bgImage = await loadImage(bgBuffer);
+    const canvas = createCanvas(bgImage.width, bgImage.height);
+    const ctx = canvas.getContext("2d");
 
-//     ctx.drawImage(bgImage, 0, 0);
+    ctx.drawImage(bgImage, 0, 0);
 
-//     // DRAW TEXT
-//     drawText(ctx, canvas, student.name, certificate.studentName);
-//     drawText(ctx, canvas, assessment.assessmentName, certificate.assessmentName);
-//     drawText(ctx, canvas, assessment.assessmentCode, certificate.assessmentCode);
-//     drawText(ctx, canvas, student.college, certificate.collegeName);
-//     drawText(
-//       ctx,
-//       canvas,
-//       certificate.generatedAt.toLocaleDateString(),
-//       certificate.date
-//     );
+    const capitalize = (txt) => {
+      if (!txt) return "";
+      return txt.toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+    };
 
-//     const buffer = canvas.toBuffer("image/png");
+    // Draw Name
+    drawText(ctx, canvas, capitalize(student.name), certificate.studentName);
 
-//     res.set({
-//       "Content-Type": "image/png",
-//       "Content-Disposition": `attachment; filename="${student.name}-certificate.png"`
-//     });
+    // Draw Assessment Name
+    if (certificate.assessmentName) {
+      drawText(ctx, canvas, assessment.assessmentName, certificate.assessmentName);
+    }
 
-//     return res.send(buffer);
+    // Draw Assessment Code
+    if (certificate.assessmentCode) {
+      drawText(ctx, canvas, student.code || assessment.assessmentCode, certificate.assessmentCode);
+    }
 
-//   } catch (error) {
-//     console.error("CERTIFICATE ERROR:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Certificate generation failed",
-//       error: error.message
-//     });
-//   }
-// };
+    // Draw College Name
+    if (certificate.collegeName) {
+      drawText(ctx, canvas, student.college, certificate.collegeName);
+    }
+
+    // Draw Date
+    if (certificate.date) {
+      const dateToUse = new Date(student.createdAt || Date.now()).toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+      });
+      drawText(ctx, canvas, dateToUse, certificate.date);
+    }
+
+    const buffer = canvas.toBuffer("image/jpeg", { quality: 0.95 });
+    const cleanFileName = `Certificate_${(student.name || "Student").replace(/\s+/g, "_")}.jpg`;
+
+    res.set({
+      "Content-Type": "image/jpeg",
+      "Content-Disposition": `attachment; filename="${cleanFileName}"`,
+      "Content-Length": buffer.length
+    });
+
+    return res.send(buffer);
+
+  } catch (error) {
+    console.error("CERTIFICATE DOWNLOAD ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Certificate generation failed: " + error.message
+    });
+  }
+};
 
 
 // download excel file 
