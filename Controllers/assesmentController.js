@@ -3,6 +3,8 @@ import assesmentQuestionIdModel from "../Models/assesmentQuestionsModel.js";
 import counterModel from "../Models/counterModel.js";
 import resultModel from "../Models/resultModel.js";
 import studentModel from "../Models/studentModel.js";
+import certificateModel from "../Models/certificateModel.js";
+import academicYearModel from "../Models/academicYearModel.js";
 import { toKolkataTime } from "../utils/timezoneHelper.js";
 
 
@@ -12,6 +14,7 @@ export const createAssessment = async (req, res) => {
     const {
       assessmentName,
       assessmentCode,
+      assessmentType,
       certificateOnly,
       totalQuestions,
       timeDuration,
@@ -60,6 +63,7 @@ export const createAssessment = async (req, res) => {
       assessmentId: counter.seq,
       assessmentName,
       assessmentCode,
+      assessmentType: assessmentType || "College Workshop",
       certificateOnly,
       totalQuestions,
       timeDuration,
@@ -85,6 +89,118 @@ export const createAssessment = async (req, res) => {
       });
     }
 
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// QUICK DUPLICATE ASSESSMENT
+export const duplicateAssessment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    let {
+      assessmentName,
+      assessmentCode,
+      assessmentType,
+      startDateTime,
+      endDateTime,
+      remark,
+      totalQuestions,
+      timeDuration,
+      certificateOnly,
+      generateCertificate,
+      certificateName,
+      allowedYears
+    } = req.body;
+
+    const srcAssessment = await assessmentModel.findById(id);
+    if (!srcAssessment) {
+      return res.status(404).json({
+        success: false,
+        message: "Source assessment not found"
+      });
+    }
+
+    // Determine unique new assessment code
+    let newCode = assessmentCode ? assessmentCode.trim().toUpperCase() : null;
+    if (!newCode) {
+      const now = new Date();
+      const day = now.getDate().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+      const seconds = now.getSeconds().toString().padStart(2, '0');
+      newCode = `DCT${day}${minutes.charAt(1)}${seconds.charAt(1)}`;
+
+      let exists = await assessmentModel.findOne({ assessmentCode: newCode });
+      while (exists) {
+        newCode = `DCT${Math.floor(1000 + Math.random() * 9000)}`;
+        exists = await assessmentModel.findOne({ assessmentCode: newCode });
+      }
+    } else {
+      const exists = await assessmentModel.findOne({ assessmentCode: newCode });
+      if (exists) {
+        return res.status(409).json({
+          success: false,
+          message: `Assessment code "${newCode}" already exists. Please choose a different code.`
+        });
+      }
+    }
+
+    const start = startDateTime ? new Date(startDateTime) : srcAssessment.startDateTime;
+    const end = endDateTime ? new Date(endDateTime) : srcAssessment.endDateTime;
+
+    if (end <= start) {
+      return res.status(400).json({
+        success: false,
+        message: "End Date-Time must be greater than Start Date-Time"
+      });
+    }
+
+    const counter = await counterModel.findOneAndUpdate(
+      { name: "assessment" },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true }
+    );
+
+    const isCertOnly = certificateOnly !== undefined ? Boolean(certificateOnly) : Boolean(srcAssessment.certificateOnly);
+    const genCert = generateCertificate !== undefined ? Boolean(generateCertificate) : Boolean(srcAssessment.generateCertificate);
+
+    const newAssessment = await assessmentModel.create({
+      assessmentId: counter.seq,
+      assessmentName: assessmentName || srcAssessment.assessmentName,
+      assessmentCode: newCode,
+      assessmentType: assessmentType || srcAssessment.assessmentType || "College Workshop",
+      certificateOnly: isCertOnly,
+      totalQuestions: isCertOnly ? 0 : (totalQuestions !== undefined ? parseInt(totalQuestions) : srcAssessment.totalQuestions),
+      timeDuration: isCertOnly ? 0 : (timeDuration !== undefined ? parseInt(timeDuration) : srcAssessment.timeDuration),
+      startDateTime: start,
+      endDateTime: end,
+      generateCertificate: isCertOnly ? true : genCert,
+      certificateName: certificateName || srcAssessment.certificateName || null,
+      remark: remark !== undefined ? remark : srcAssessment.remark,
+      allowedYears: allowedYears || srcAssessment.allowedYears || [],
+      status: true
+    });
+
+    // Clone assigned questions & course-year groups from source assessment
+    const srcQuestions = await assesmentQuestionIdModel.findOne({ assesmentId: id });
+    if (srcQuestions) {
+      await assesmentQuestionIdModel.create({
+        assesmentId: newAssessment._id,
+        questionIds: srcQuestions.questionIds ? [...srcQuestions.questionIds] : [],
+        courseYearGroups: srcQuestions.courseYearGroups ? JSON.parse(JSON.stringify(srcQuestions.courseYearGroups)) : []
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "Assessment duplicated successfully with all questions!",
+      assessment: newAssessment
+    });
+
+  } catch (error) {
+    console.error("DUPLICATE ASSESSMENT ERROR:", error);
     return res.status(500).json({
       success: false,
       message: error.message
@@ -185,6 +301,50 @@ export const getAssesmentByStatus = async (req, res) => {
       }
     }
 
+    // ===== tab filter (assessmentType) =====
+    const assessmentType = req.query.assessmentType?.trim();
+    if (assessmentType && assessmentType !== "All") {
+      if (assessmentType === "College Workshop") {
+        filter.$and = filter.$and || [];
+        filter.$and.push({
+          $or: [
+            { assessmentType: "College Workshop" },
+            { assessmentType: { $exists: false } },
+            { assessmentType: null },
+            { assessmentType: "" }
+          ]
+        });
+      } else {
+        filter.assessmentType = assessmentType;
+      }
+    }
+
+    // Calculate tab counts under current status/search/date filter
+    const baseFilterForCounts = { status };
+    if (search) {
+      baseFilterForCounts.$or = [
+        { assessmentName: { $regex: search, $options: "i" } },
+        { assessmentCode: { $regex: search, $options: "i" } },
+        { remark: { $regex: search, $options: "i" } },
+      ];
+    }
+    if (date) {
+      const [day, month, year] = date.split("/");
+      if (day && month && year) {
+        baseFilterForCounts.startDateTime = {
+          $gte: new Date(`${year}-${month}-${day}T00:00:00.000Z`),
+          $lte: new Date(`${year}-${month}-${day}T23:59:59.999Z`),
+        };
+      }
+    }
+
+    const allTypeCount = await assessmentModel.countDocuments(baseFilterForCounts);
+    const trainingClassCount = await assessmentModel.countDocuments({
+      ...baseFilterForCounts,
+      assessmentType: "Training Class"
+    });
+    const collegeWorkshopCount = allTypeCount - trainingClassCount;
+
     // ===== total count (PURE FILTERED DATA) =====
     const totalCount = await assessmentModel.countDocuments(filter);
 
@@ -233,6 +393,11 @@ export const getAssesmentByStatus = async (req, res) => {
       success: true,
       assessments: formatted,
       totalCount,
+      typeCounts: {
+        all: allTypeCount,
+        collegeWorkshop: collegeWorkshopCount,
+        trainingClass: trainingClassCount
+      },
       totalPages: Math.ceil(totalCount / limit),
       currentPage: page,
     });

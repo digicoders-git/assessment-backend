@@ -17,6 +17,12 @@ const assessmentSchema = new mongoose.Schema({
     uppercase: true,
     trim: true
   },
+  assessmentType: {
+    type: String,
+    enum: ["College Workshop", "Training Class", "Other"],
+    default: "College Workshop",
+    trim: true
+  },
   certificateOnly:{
     type: Boolean,
     default:false
