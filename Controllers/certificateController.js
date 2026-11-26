@@ -1,5 +1,6 @@
 import qs from "qs";
 import certificateModel from "../Models/certificateModel.js";
+import assessmentModel from "../Models/assesmentModel.js";
 import sizeOf from "image-size";
 import fs from "fs";
 import cloudinary from "../Config/cloudinary.js";
@@ -146,9 +147,60 @@ export const createCertificate = async (req, res) => {
 // GET all certificates
 export const getAllCertificates = async (req, res) => {
   try {
-    const certificates = await certificateModel.find();
-    res.status(200).json({ success: true, message: "certificates found", certificates });
+    const certificates = await certificateModel.find().sort({ createdAt: -1 }).lean();
+
+    // Aggregate assessments count and list grouped by certificateName
+    const usage = await assessmentModel.aggregate([
+      {
+        $match: {
+          certificateName: { $ne: null },
+        },
+      },
+      {
+        $group: {
+          _id: "$certificateName",
+          count: { $sum: 1 },
+          assessments: {
+            $push: {
+              _id: "$_id",
+              assessmentCode: "$assessmentCode",
+              assessmentName: "$assessmentName",
+              assessmentType: "$assessmentType",
+              status: "$status",
+              startDateTime: "$startDateTime",
+              endDateTime: "$endDateTime",
+            },
+          },
+        },
+      },
+    ]);
+
+    const usageMap = new Map();
+    usage.forEach((u) => {
+      if (u._id) {
+        usageMap.set(u._id.toString(), {
+          count: u.count,
+          assessments: u.assessments || [],
+        });
+      }
+    });
+
+    const enrichedCertificates = certificates.map((cert) => {
+      const info = usageMap.get(cert._id.toString());
+      return {
+        ...cert,
+        usedIn: info ? info.count : 0,
+        assignedAssessments: info ? info.assessments : [],
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "certificates found",
+      certificates: enrichedCertificates,
+    });
   } catch (error) {
+    console.error("GET ALL CERTIFICATES ERROR:", error);
     res.status(500).json({ success: false, message: "Internal server error", error: error.message });
   }
 };
@@ -158,8 +210,17 @@ export const getSingleCertificate = async (req, res) => {
   try {
     const { id } = req.params;
     if (!id) return res.status(400).json({ success: false, message: "Certificate ID is required" });
-    const certificate = await certificateModel.findById(id);
+    const certificate = await certificateModel.findById(id).lean();
     if (!certificate) return res.status(404).json({ success: false, message: "Certificate not found" });
+
+    const assignedAssessments = await assessmentModel
+      .find({ certificateName: id })
+      .select("assessmentCode assessmentName assessmentType status startDateTime endDateTime")
+      .lean();
+
+    certificate.usedIn = assignedAssessments.length;
+    certificate.assignedAssessments = assignedAssessments;
+
     res.status(200).json(certificate);
   } catch (error) {
     res.status(500).json({ success: false, message: "Internal server error", error: error.message });
