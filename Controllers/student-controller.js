@@ -5,6 +5,7 @@ import courseModel from "../Models/courseModel.js";
 import studentModel from "../Models/studentModel.js";
 import remarkModel from "../Models/remarkModel.js";
 import resultModel from "../Models/resultModel.js";
+import assignmentModel from "../Models/assignmentModel.js";
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 
@@ -151,7 +152,7 @@ export const updateStuednt = async (req, res) => {
 export const existStudent = async (req, res) => {
   try {
     const { mobile } = req.body;
-    const existMobile = await studentModel.findOne({ mobile });
+    const existMobile = await studentModel.findOne({ mobile }).sort({ createdAt: -1 });
     if (existMobile) {
       return res.status(200).json({ success: true, message: `wlecome ${existMobile.name}`, existMobile })
     }
@@ -167,9 +168,47 @@ export const getAllStudent = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const { college, course, year, search } = req.query;
+    const { college, course, year, search, status } = req.query;
 
     const matchStage = {};
+
+    // ---------- ASSIGNMENT SCOPING (If role === 'user') ----------
+    if (req.admin && req.admin.role === "user") {
+      const activeAssignments = await assignmentModel.find({
+        assignedTo: req.admin._id,
+        status: "active"
+      });
+
+      const assignedColleges = activeAssignments
+        .filter(a => a.type === "college")
+        .map(a => a.targetName);
+
+      const assignedCodes = activeAssignments
+        .filter(a => a.type === "assessment")
+        .map(a => a.targetId);
+
+      // If user has NO assigned colleges and NO assigned assessments, return empty list
+      if (assignedColleges.length === 0 && assignedCodes.length === 0) {
+        return res.status(200).json({
+          success: true,
+          students: [],
+          pagination: { page, limit, total: 0, totalPages: 0 }
+        });
+      }
+
+      const scopeConditions = [];
+      if (assignedColleges.length > 0) {
+        scopeConditions.push({ college: { $in: assignedColleges } });
+      }
+      if (assignedCodes.length > 0) {
+        scopeConditions.push({ code: { $in: assignedCodes } });
+      }
+
+      if (scopeConditions.length > 0) {
+        matchStage.$and = matchStage.$and || [];
+        matchStage.$and.push({ $or: scopeConditions });
+      }
+    }
 
     // ---------- FILTERS ----------
     // ---------- FILTERS (PARTIAL + CASE INSENSITIVE) ----------
@@ -190,12 +229,12 @@ export const getAllStudent = async (req, res) => {
     if (search && search.trim()) {
       const digitSearch = search.replace(/\D/g, "");
 
-      matchStage.$or = [
+      const searchOr = [
         { name: { $regex: search.trim(), $options: "i" } }
       ];
 
       if (digitSearch) {
-        matchStage.$or.push({
+        searchOr.push({
           $expr: {
             $regexMatch: {
               input: { $toString: "$mobile" },
@@ -204,35 +243,73 @@ export const getAllStudent = async (req, res) => {
           }
         });
       }
+
+      if (matchStage.$and) {
+        matchStage.$and.push({ $or: searchOr });
+      } else {
+        matchStage.$or = searchOr;
+      }
     }
 
-    const pipeline = [
+    // Fast deduplication and sorting by mobile
+    // If status filter is applied, find the matching student IDs via remarkModel first
+    if (status && status !== "all") {
+      if (status === "No Status") {
+        // Find all student IDs that have at least one remark
+        const studentsWithRemarks = await remarkModel.distinct("student");
+        matchStage._id = { $nin: studentsWithRemarks };
+      } else {
+        // Find students whose latest remark matches this status
+        const matchingRemarks = await remarkModel.aggregate([
+          { $sort: { createdAt: -1 } },
+          {
+            $group: {
+              _id: "$student",
+              latestStatus: { $first: "$status" }
+            }
+          },
+          { $match: { latestStatus: status } },
+          { $project: { _id: 1 } }
+        ]);
+        const matchingStudentIds = matchingRemarks.map(r => r._id);
+        matchStage._id = { $in: matchingStudentIds };
+      }
+    }
+
+    const basePipeline = [
       { $match: matchStage },
       { $sort: { createdAt: -1 } },
-
       {
         $group: {
           _id: "$mobile",
           student: { $first: "$$ROOT" }
         }
       },
-
-      { $replaceRoot: { newRoot: "$student" } },
-      { $sort: { createdAt: -1 } }
+      { $replaceRoot: { newRoot: "$student" } }
     ];
 
-    const totalData = await studentModel.aggregate(pipeline);
-    const total = totalData.length;
+    // Count total unique students
+    const countPipeline = [...basePipeline, { $count: "total" }];
+    const countResult = await studentModel.aggregate(countPipeline);
+    const total = countResult[0]?.total || 0;
 
-    pipeline.push({ $skip: skip }, { $limit: limit });
+    // Fetch paginated slice directly without heavy lookup for unpaginated records
+    const paginatedPipeline = [
+      ...basePipeline,
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit }
+    ];
 
-    const students = await studentModel.aggregate(pipeline);
+    const students = await studentModel.aggregate(paginatedPipeline);
 
-    // Fetch and attach remarks for the student IDs
+    // Fetch and attach remarks for only the paginated slice
     const studentIds = students.map(s => s._id);
-    const allRemarks = await remarkModel.find({ student: { $in: studentIds } })
-      .populate("admin", "userName")
-      .sort({ createdAt: -1 });
+    const allRemarks = studentIds.length > 0 
+      ? await remarkModel.find({ student: { $in: studentIds } })
+          .populate("admin", "userName")
+          .sort({ createdAt: -1 })
+      : [];
 
     const remarksByStudent = {};
     allRemarks.forEach(rem => {
@@ -252,11 +329,13 @@ export const getAllStudent = async (req, res) => {
     const studentsWithRemarks = students.map(s => {
       const sId = String(s._id);
       const studentRemarks = remarksByStudent[sId] || [];
+      const latestRemark = studentRemarks[0] || null;
       return {
         ...s,
+        computedStatus: latestRemark?.status || "No Status",
         remarks: studentRemarks,
         remarksCount: studentRemarks.length,
-        latestRemark: studentRemarks[0] || null
+        latestRemark
       };
     });
 
@@ -303,9 +382,47 @@ export const getStudentByAssesmet = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const { search, college, year, course } = req.query;
+    const { search, college, year, course, status } = req.query;
 
     const matchStage = {};
+
+    // ---------- ASSIGNMENT SCOPING (If role === 'user') ----------
+    if (req.admin && req.admin.role === "user") {
+      const activeAssignments = await assignmentModel.find({
+        assignedTo: req.admin._id,
+        status: "active"
+      });
+
+      const assignedColleges = activeAssignments
+        .filter(a => a.type === "college")
+        .map(a => a.targetName);
+
+      const assignedCodes = activeAssignments
+        .filter(a => a.type === "assessment")
+        .map(a => a.targetId);
+
+      // If user has NO assigned colleges and NO assigned assessments, return empty list
+      if (assignedColleges.length === 0 && assignedCodes.length === 0) {
+        return res.status(200).json({
+          success: true,
+          students: [],
+          pagination: { page, limit, total: 0, totalPages: 0 }
+        });
+      }
+
+      const scopeConditions = [];
+      if (assignedColleges.length > 0) {
+        scopeConditions.push({ college: { $in: assignedColleges } });
+      }
+      if (assignedCodes.length > 0) {
+        scopeConditions.push({ code: { $in: assignedCodes } });
+      }
+
+      if (scopeConditions.length > 0) {
+        matchStage.$and = matchStage.$and || [];
+        matchStage.$and.push({ $or: scopeConditions });
+      }
+    }
 
     if (assesmentCode && assesmentCode !== "all") {
       matchStage.code = assesmentCode;
@@ -327,25 +444,61 @@ export const getStudentByAssesmet = async (req, res) => {
       const orConditions = [{ name: { $regex: search, $options: "i" } }];
       const mobileSearch = search.replace(/\D/g, "");
       if (mobileSearch) orConditions.push({ mobile: Number(mobileSearch) });
-      matchStage.$or = orConditions;
+      
+      if (matchStage.$and) {
+        matchStage.$and.push({ $or: orConditions });
+      } else {
+        matchStage.$or = orConditions;
+      }
     }
 
-    const pipeline = [
-      { $match: matchStage },
+    // If status filter is applied, find the matching student IDs via remarkModel first
+    if (status && status !== "all") {
+      if (status === "No Status") {
+        const studentsWithRemarks = await remarkModel.distinct("student");
+        matchStage._id = { $nin: studentsWithRemarks };
+      } else {
+        const matchingRemarks = await remarkModel.aggregate([
+          { $sort: { createdAt: -1 } },
+          {
+            $group: {
+              _id: "$student",
+              latestStatus: { $first: "$status" }
+            }
+          },
+          { $match: { latestStatus: status } },
+          { $project: { _id: 1 } }
+        ]);
+        const matchingStudentIds = matchingRemarks.map(r => r._id);
+        matchStage._id = { $in: matchingStudentIds };
+      }
+    }
 
+    const basePipeline = [
+      { $match: matchStage },
       // ✅ FIRST student per mobile (oldest)
       { $sort: { createdAt: 1 } },
-
       {
         $group: {
           _id: "$mobile",
           student: { $first: "$$ROOT" }
         }
       },
+      { $replaceRoot: { newRoot: "$student" } }
+    ];
 
-      { $replaceRoot: { newRoot: "$student" } },
+    // Count total unique students
+    const countPipeline = [...basePipeline, { $count: "total" }];
+    const countResult = await studentModel.aggregate(countPipeline);
+    const total = countResult[0]?.total || 0;
 
-      // 🔹 RESULT LOOKUP (marks / total)
+    // Fetch paginated slice directly
+    const paginatedPipeline = [
+      ...basePipeline,
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      // 🔹 RESULT LOOKUP (marks / total) only for the paginated 10 records
       {
         $lookup: {
           from: "results",
@@ -354,7 +507,6 @@ export const getStudentByAssesmet = async (req, res) => {
           as: "result"
         }
       },
-
       {
         $addFields: {
           marks: {
@@ -373,24 +525,18 @@ export const getStudentByAssesmet = async (req, res) => {
           }
         }
       },
-
-      { $project: { result: 0 } },
-
-      { $sort: { createdAt: -1 } }
+      { $project: { result: 0 } }
     ];
 
-    const totalData = await studentModel.aggregate(pipeline);
-    const total = totalData.length;
+    const students = await studentModel.aggregate(paginatedPipeline);
 
-    pipeline.push({ $skip: skip }, { $limit: limit });
-
-    const students = await studentModel.aggregate(pipeline);
-
-    // Fetch and attach remarks for the student IDs
+    // Fetch and attach remarks for only the paginated slice
     const studentIds = students.map(s => s._id);
-    const allRemarks = await remarkModel.find({ student: { $in: studentIds } })
-      .populate("admin", "userName")
-      .sort({ createdAt: -1 });
+    const allRemarks = studentIds.length > 0
+      ? await remarkModel.find({ student: { $in: studentIds } })
+          .populate("admin", "userName")
+          .sort({ createdAt: -1 })
+      : [];
 
     const remarksByStudent = {};
     allRemarks.forEach(rem => {
@@ -410,11 +556,13 @@ export const getStudentByAssesmet = async (req, res) => {
     const studentsWithRemarks = students.map(s => {
       const sId = String(s._id);
       const studentRemarks = remarksByStudent[sId] || [];
+      const latestRemark = studentRemarks[0] || null;
       return {
         ...s,
+        computedStatus: latestRemark?.status || "No Status",
         remarks: studentRemarks,
         remarksCount: studentRemarks.length,
-        latestRemark: studentRemarks[0] || null
+        latestRemark
       };
     });
 
@@ -447,9 +595,50 @@ export const getStudentByAssesmet = async (req, res) => {
 
 export const academicData = async (req, res) => {
   try {
-    const colleges = await collegeModel.find();
+    let colleges = await collegeModel.find().lean();
     const years = await academicYearModel.find();
     const course = await courseModel.find();
+
+    // If telecaller user, return assigned colleges PLUS colleges from their assigned assessments
+    if (req.admin && req.admin.role === "user") {
+      const activeAssignments = await assignmentModel.find({
+        assignedTo: req.admin._id,
+        status: "active"
+      });
+
+      const assignedCollegeNames = activeAssignments
+        .filter(a => a.type === "college")
+        .map(a => a.targetName);
+
+      const assignedCodes = activeAssignments
+        .filter(a => a.type === "assessment")
+        .map(a => a.targetId);
+
+      // Find distinct colleges from students registered under assigned assessments
+      let assessmentCollegeNames = [];
+      if (assignedCodes.length > 0) {
+        assessmentCollegeNames = await studentModel.distinct("college", { code: { $in: assignedCodes } });
+      }
+
+      // Combine both sets of colleges
+      const allAllowedColleges = new Set([...assignedCollegeNames, ...assessmentCollegeNames.filter(Boolean)]);
+
+      // Filter existing colleges from DB
+      const existingMatched = colleges.filter(c => allAllowedColleges.has(c.collegeName));
+      const existingMatchedNames = new Set(existingMatched.map(c => c.collegeName));
+
+      // Any college that exists in students but not in collegeModel, add as virtual entry
+      allAllowedColleges.forEach(colName => {
+        if (!existingMatchedNames.has(colName)) {
+          existingMatched.push({
+            _id: colName,
+            collegeName: colName
+          });
+        }
+      });
+
+      colleges = existingMatched;
+    }
 
     return res.status(200).json({ success: true, message: "academic data", colleges, years, course })
   } catch (error) {

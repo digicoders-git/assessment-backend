@@ -1,4 +1,6 @@
 import collegeModel from "../Models/collegeModel.js";
+import assignmentModel from "../Models/assignmentModel.js";
+import studentModel from "../Models/studentModel.js";
 
 
 /* Create college */
@@ -34,7 +36,33 @@ export const createCollege = async (req, res) => {
 /* Get all colleges */
 export const getAllColleges = async (req, res) => {
   try {
-    const colleges = await collegeModel.find().sort({ createdAt: -1 });
+    let query = {};
+
+    // If role === 'user', return assigned colleges PLUS colleges from assigned assessments
+    if (req.admin && req.admin.role === "user") {
+      const activeAssignments = await assignmentModel.find({
+        assignedTo: req.admin._id,
+        status: "active"
+      });
+
+      const assignedCollegeNames = activeAssignments
+        .filter(a => a.type === "college")
+        .map(a => a.targetName);
+
+      const assignedCodes = activeAssignments
+        .filter(a => a.type === "assessment")
+        .map(a => a.targetId);
+
+      let assessmentColleges = [];
+      if (assignedCodes.length > 0) {
+        assessmentColleges = await studentModel.distinct("college", { code: { $in: assignedCodes } });
+      }
+
+      const allAllowed = [...new Set([...assignedCollegeNames, ...assessmentColleges.filter(Boolean)])];
+      query.collegeName = { $in: allAllowed };
+    }
+
+    const colleges = await collegeModel.find(query).sort({ createdAt: -1 });
 
     return res.status(200).json({
       success: true,

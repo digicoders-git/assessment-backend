@@ -118,7 +118,7 @@ export const userLogin = async (req, res) => {
     try {
       const locationInfo = { latitude, longitude, address, ip };
       await sendOtpEmail(process.env.SMTP_FROM, `User ${user.userName} logged in`, user.userName, locationInfo, true);
-    } catch (e) {}
+    } catch (e) { }
     return res.status(200).json({ success: true, message: "Login successful", role: 'user' });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
@@ -381,14 +381,14 @@ export const sendDownloadOtp = async (req, res) => {
     const adminId = req.admin._id;
     const admin = await amdidnModel.findById(adminId);
     if (!admin) return res.status(404).json({ success: false, message: "Admin not found" });
-    
+
     const { latitude, longitude, address, ip } = req.body;
     const locationInfo = { latitude, longitude, address, ip };
 
     const otp = generateOtp();
     downloadOtpStore[adminId] = { otp, expiresAt: Date.now() + 5 * 60 * 1000 };
     console.log(`📥 Download OTP for ${admin.userName} | IP: ${ip || 'Unknown'} | ${address || 'No address'}`);
-    
+
     await sendDownloadOtpEmail(process.env.SMTP_FROM, otp, admin.userName, locationInfo);
     return res.status(200).json({ success: true, message: "OTP sent to admin email" });
   } catch (error) {
@@ -401,19 +401,19 @@ export const verifyDownloadOtp = async (req, res) => {
   try {
     const { otp } = req.body;
     const adminId = req.admin._id;
-    
+
     if (!otp) return res.status(400).json({ success: false, message: "OTP is required" });
-    
+
     const record = downloadOtpStore[adminId];
     if (!record) return res.status(400).json({ success: false, message: "OTP not found. Please request again." });
-    
+
     if (Date.now() > record.expiresAt) {
       delete downloadOtpStore[adminId];
       return res.status(400).json({ success: false, message: "OTP expired. Please request again." });
     }
-    
+
     if (record.otp !== otp) return res.status(400).json({ success: false, message: "Invalid OTP" });
-    
+
     delete downloadOtpStore[adminId];
     return res.status(200).json({ success: true, message: "OTP verified successfully" });
   } catch (error) {

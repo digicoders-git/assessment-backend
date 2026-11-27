@@ -20,7 +20,6 @@ const assessmentSchema = new mongoose.Schema({
   assessmentType: {
     type: String,
     enum: ["College Workshop", "Training Class", "Other"],
-    default: "College Workshop",
     trim: true
   },
   certificateOnly:{

@@ -5,6 +5,7 @@ import resultModel from "../Models/resultModel.js";
 import studentModel from "../Models/studentModel.js";
 import certificateModel from "../Models/certificateModel.js";
 import academicYearModel from "../Models/academicYearModel.js";
+import assignmentModel from "../Models/assignmentModel.js";
 import { toKolkataTime } from "../utils/timezoneHelper.js";
 
 
@@ -63,7 +64,7 @@ export const createAssessment = async (req, res) => {
       assessmentId: counter.seq,
       assessmentName,
       assessmentCode,
-      assessmentType: assessmentType || "College Workshop",
+      assessmentType: assessmentType || null,
       certificateOnly,
       totalQuestions,
       timeDuration,
@@ -213,8 +214,21 @@ export const duplicateAssessment = async (req, res) => {
 
 export const getAllAssessments = async (req, res) => {
   try {
+    let query = {};
+
+    // If role === 'user', only return assigned assessments
+    if (req.admin && req.admin.role === "user") {
+      const activeAssignments = await assignmentModel.find({
+        assignedTo: req.admin._id,
+        status: "active",
+        type: "assessment"
+      });
+      const assignedCodes = activeAssignments.map(a => a.targetId);
+      query.assessmentCode = { $in: assignedCodes };
+    }
+
     const assessments = await assessmentModel
-      .find()
+      .find(query)
       .populate("certificateName")
       .sort({ createdAt: -1 });
 
@@ -228,12 +242,38 @@ export const getAllAssessments = async (req, res) => {
       });
     }
 
+    // Fast batch aggregation to find the primary college for each assessment code (sorted by highest count)
+    const codes = assessments.map(a => a.assessmentCode).filter(Boolean);
+    let codeCollegeMap = {};
+    if (codes.length > 0) {
+      try {
+        const grouped = await studentModel.aggregate([
+          { $match: { code: { $in: codes }, college: { $exists: true, $ne: "" } } },
+          { $group: { _id: { code: "$code", college: "$college" }, count: { $sum: 1 } } },
+          { $sort: { count: -1 } },
+          { $group: { _id: "$_id.code", colleges: { $push: "$_id.college" } } }
+        ]);
+        grouped.forEach(item => {
+          if (item._id && item.colleges) {
+            codeCollegeMap[item._id] = item.colleges;
+          }
+        });
+      } catch (e) {
+        console.error("Aggregation code colleges error:", e);
+      }
+    }
+
     //  Convert UTC → IST ONLY for response
-    const formattedAssessments = assessments.map(a => {
+    const formattedAssessments = assessments.map((a) => {
       const obj = a.toObject();
+      const linkedColleges = codeCollegeMap[obj.assessmentCode] || [];
+      // Prefer assessment.remark if it contains the college name / workshop name, otherwise the top college from students
+      const primaryCollege = obj.remark || linkedColleges[0] || null;
 
       return {
         ...obj,
+        linkedColleges,
+        primaryCollege,
         startDateTime: obj.startDateTime
           ? toKolkataTime(obj.startDateTime)
           : null,
@@ -263,7 +303,13 @@ export const getAllAssessments = async (req, res) => {
 
 export const getAssesmentByStatus = async (req, res) => {
   try {
-    const status = req.params.status === "true";
+    const statusParam = req.params.status;
+    let statusFilter = {};
+    if (statusParam === "all") {
+      // no status condition
+    } else {
+      statusFilter = { status: statusParam === "true" };
+    }
 
     // pagination
     const page = parseInt(req.query.page) || 1;
@@ -274,8 +320,8 @@ export const getAssesmentByStatus = async (req, res) => {
     const search = req.query.search?.trim(); // name / code / remark
     const date = req.query.date?.trim();     // DD/MM/YYYY
 
-    // ===== base filter (STATUS NEVER MIX) =====
-    let filter = { status };
+    // ===== base filter =====
+    let filter = { ...statusFilter };
 
     // ===== text search =====
     if (search) {
@@ -304,25 +350,13 @@ export const getAssesmentByStatus = async (req, res) => {
     // ===== tab filter (assessmentType) =====
     const assessmentType = req.query.assessmentType?.trim();
     if (assessmentType && assessmentType !== "All") {
-      if (assessmentType === "College Workshop") {
-        filter.$and = filter.$and || [];
-        filter.$and.push({
-          $or: [
-            { assessmentType: "College Workshop" },
-            { assessmentType: { $exists: false } },
-            { assessmentType: null },
-            { assessmentType: "" }
-          ]
-        });
-      } else {
-        filter.assessmentType = assessmentType;
-      }
+      filter.assessmentType = assessmentType;
     }
 
-    // Calculate tab counts under current status/search/date filter
-    const baseFilterForCounts = { status };
+    // Calculate tab counts under search/date filter (INDEPENDENT of current tab status)
+    const baseFilterWithoutStatus = {};
     if (search) {
-      baseFilterForCounts.$or = [
+      baseFilterWithoutStatus.$or = [
         { assessmentName: { $regex: search, $options: "i" } },
         { assessmentCode: { $regex: search, $options: "i" } },
         { remark: { $regex: search, $options: "i" } },
@@ -331,19 +365,26 @@ export const getAssesmentByStatus = async (req, res) => {
     if (date) {
       const [day, month, year] = date.split("/");
       if (day && month && year) {
-        baseFilterForCounts.startDateTime = {
+        baseFilterWithoutStatus.startDateTime = {
           $gte: new Date(`${year}-${month}-${day}T00:00:00.000Z`),
           $lte: new Date(`${year}-${month}-${day}T23:59:59.999Z`),
         };
       }
     }
 
-    const allTypeCount = await assessmentModel.countDocuments(baseFilterForCounts);
+    const allTypeCount = await assessmentModel.countDocuments(baseFilterWithoutStatus);
+    const inactiveCount = await assessmentModel.countDocuments({
+      ...baseFilterWithoutStatus,
+      status: false
+    });
     const trainingClassCount = await assessmentModel.countDocuments({
-      ...baseFilterForCounts,
+      ...baseFilterWithoutStatus,
       assessmentType: "Training Class"
     });
-    const collegeWorkshopCount = allTypeCount - trainingClassCount;
+    const collegeWorkshopCount = await assessmentModel.countDocuments({
+      ...baseFilterWithoutStatus,
+      assessmentType: "College Workshop"
+    });
 
     // ===== total count (PURE FILTERED DATA) =====
     const totalCount = await assessmentModel.countDocuments(filter);
@@ -396,7 +437,8 @@ export const getAssesmentByStatus = async (req, res) => {
       typeCounts: {
         all: allTypeCount,
         collegeWorkshop: collegeWorkshopCount,
-        trainingClass: trainingClassCount
+        trainingClass: trainingClassCount,
+        inactive: inactiveCount
       },
       totalPages: Math.ceil(totalCount / limit),
       currentPage: page,
@@ -537,6 +579,27 @@ export const deleteAssessment = async (req, res) => {
       message: "Assessment deleted successfully"
     });
 
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Reset all legacy assessments categories so admin can manually categorize them
+export const resetAssessmentCategories = async (req, res) => {
+  try {
+    const result = await assessmentModel.updateMany(
+      {},
+      { $unset: { assessmentType: "" } }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully reset assessment categories for ${result.modifiedCount} assessments. You can now manually categorize them!`,
+      modifiedCount: result.modifiedCount
+    });
   } catch (error) {
     return res.status(500).json({
       success: false,

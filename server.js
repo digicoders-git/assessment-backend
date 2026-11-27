@@ -26,6 +26,7 @@ import resultRouter from "./Routes/resultRoute.js";
 import lastYearData from "./Routes/lastYearData.js";
 import statusRouter from "./Routes/statusRoute.js";
 import remarkRouter from "./Routes/remarkRoute.js";
+import assignmentRouter from "./Routes/assignmentRoute.js";
 
 
 
@@ -70,6 +71,7 @@ app.use('/admin', resultRouter);
 app.use('/admin', lastYearData);
 app.use('/admin', statusRouter);
 app.use('/admin', remarkRouter);
+app.use('/admin/assignment', assignmentRouter);
 
 // route not found 
 app.use((req, res) => {
